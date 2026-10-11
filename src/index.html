@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>행운볼 레이스</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap">
+<style>
+/*@@STYLE@@*/
+</style>
+</head>
+<body data-gtheme="pastel">
+
+<!-- 설정 화면 -->
+<section id="setup" class="screen">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo-balls" aria-hidden="true"><i style="background:#E5484D"></i><i style="background:#2F7BE0"></i><i style="background:#E9A90F"></i></div>
+      <div>
+        <h1>행운볼 레이스</h1>
+        <p>이름을 넣고 출발! 긴 트랙을 먼저(또는 마지막으로) 내려온 공이 행운의 주인공입니다.</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="btnExample" class="btn ghost">예시 채우기</button>
+      <button type="button" id="btnReset" class="btn ghost">모두 지우기</button>
+    </div>
+  </header>
+
+  <main class="setup-grid">
+    <div class="card">
+      <div class="field">
+        <label class="lbl" for="inCount"><span class="no">1</span>참가 인원</label>
+        <div class="count-row">
+          <input id="inCount" type="number" min="2" max="500" value="8" inputmode="numeric">
+          <span class="unit">명</span>
+          <input id="inCountRange" type="range" min="2" max="500" value="8" aria-label="참가 인원 슬라이더">
+        </div>
+        <p class="hint" id="countHint"></p>
+      </div>
+
+      <div class="field">
+        <label class="lbl" for="inNames"><span class="no">2</span>이름 · 공 꾸미기</label>
+        <textarea id="inNames" rows="4" placeholder="민수, 지영, 철수, 수진&#10;쉼표나 줄바꿈으로 구분해서 입력하세요."></textarea>
+        <p class="hint">이름을 붙여넣으면 인원이 자동으로 맞춰집니다. <b>이름*3</b>처럼 쓰면 그 사람의 공이 3개가 되어 뽑힐 확률이 올라갑니다. 비워 둔 자리는 "9번"처럼 자동으로 채워집니다.</p>
+        <div class="lbl-row">
+          <span class="hint">공 색은 동그라미를, 사진은 사진 칸을 누르세요.</span>
+          <div class="mini-actions">
+            <label class="btn small" for="inBulkImg">이미지 여러 장</label>
+            <input id="inBulkImg" type="file" accept="image/*" multiple hidden>
+            <label class="btn small" for="inAllImg">모든 공에 같은 이미지</label>
+            <input id="inAllImg" type="file" accept="image/*" hidden>
+            <button type="button" class="btn small" id="btnClearImg">이미지 지우기</button>
+            <button type="button" class="btn small" id="btnShuffleColor">색 다시 섞기</button>
+          </div>
+        </div>
+        <p class="hint" id="imgHint">이미지 파일 이름이 참가자 이름과 같으면 그 공에 자동으로 연결됩니다 (예: 민수.png).</p>
+        <div id="ballList" class="ball-list"></div>
+        <input type="file" id="inOneImg" accept="image/*" hidden>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <span class="lbl"><span class="no">3</span>레이스 시간</span>
+        <div class="seg" id="segDuration" role="group" aria-label="레이스 시간">
+          <button type="button" data-v="30">30초</button><button type="button" data-v="60">60초</button><button type="button" data-v="90">90초</button>
+        </div>
+        <p class="hint">선두가 결승선에 도착하는 시간입니다. 시간이 길수록 코스가 길어집니다.</p>
+      </div>
+
+      <div class="field">
+        <span class="lbl"><span class="no">4</span>레이스 스타일</span>
+        <div class="choice-row" id="segStyle" role="group" aria-label="레이스 스타일">
+          <button type="button" class="choice" data-v="exciting"><b>익사이팅</b><span>회전 바 · 범퍼 · 계단 턱이 많고 순위가 자주 바뀝니다</span></button>
+          <button type="button" class="choice" data-v="dramatic"><b>드라마틱</b><span>긴 곡선 · 지그재그 · 협곡으로 긴장을 쌓고 슬로모션이 많습니다</span></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl"><span class="no">5</span>난이도</span>
+        <div class="seg" id="segDifficulty" role="group" aria-label="난이도">
+          <button type="button" data-v="easy">쉬움</button><button type="button" data-v="normal">보통</button><button type="button" data-v="hard">어려움</button>
+        </div>
+        <p class="hint">어려울수록 장애물이 많고, 회전 바가 빠르고, 협곡이 좁아집니다.</p>
+      </div>
+
+      <div class="field">
+        <span class="lbl"><span class="no">6</span>테마</span>
+        <div class="theme-row" id="segTheme" role="group" aria-label="테마"></div>
+      </div>
+
+      <div class="field">
+        <label class="lbl" for="selWin"><span class="no">7</span>당첨 형태</label>
+        <div class="win-row">
+          <select id="selWin">
+            <option value="first">1등 당첨</option>
+            <option value="nth">N등 당첨</option>
+            <option value="top">상위 N명 당첨</option>
+            <option value="bottom">하위 N명 당첨</option>
+            <option value="last">꼴찌 당첨</option>
+            <option value="full">전체 순위 정하기</option>
+            <option value="blind">블라인드 (몇 등이 당첨인지 마지막에 공개)</option>
+          </select>
+          <span class="stepper" id="winNWrap">
+            <button type="button" id="winMinus" aria-label="줄이기">−</button>
+            <input id="inWinN" type="number" min="1" value="3" aria-label="N 값">
+            <button type="button" id="winPlus" aria-label="늘리기">+</button>
+          </span>
+          <span id="winNUnit" class="hint">명</span>
+        </div>
+        <p class="win-desc" id="winDesc"></p>
+      </div>
+
+      <div class="field">
+        <span class="lbl"><span class="no">8</span>슬로모션</span>
+        <div class="seg" id="segSlow" role="group" aria-label="슬로모션">
+          <button type="button" data-v="0">끔</button><button type="button" data-v="1">적게</button><button type="button" data-v="2">보통</button><button type="button" data-v="3">많이</button>
+        </div>
+        <p class="hint">결승 접전, 당첨 확정, 선두 역전 순간에 자동으로 느려집니다. 화면 속도만 바뀌고 결과에는 영향이 없습니다.</p>
+      </div>
+
+      <details class="adv">
+        <summary>고급 설정</summary>
+        <div class="adv-grid">
+          <label for="inSeed">시드 번호</label>
+          <div><input id="inSeed" type="text" inputmode="numeric" placeholder="비우면 매번 무작위"> <span class="hint">같은 시드·참가자·설정이면 같은 레이스가 나옵니다.</span></div>
+          <span>효과음</span>
+          <label class="toggle"><input type="checkbox" id="chkSound" checked> 켜기</label>
+          <label for="selLabels">이름표</label>
+          <select id="selLabels"><option value="auto">자동 (공이 많으면 일부만)</option><option value="all">모든 공</option><option value="off">끄기</option></select>
+        </div>
+      </details>
+    </div>
+  </main>
+
+  <footer class="summary-bar">
+    <div class="summary-inner">
+      <div class="summary-text">
+        <p id="summary"></p>
+        <p id="setupError" class="error" hidden></p>
+      </div>
+      <button type="button" id="btnStart" class="btn primary big">레이스 시작 ▶</button>
+    </div>
+  </footer>
+</section>
+
+<!-- 레이스 화면 -->
+<section id="race" class="screen" hidden>
+  <div class="stage-wrap" id="stageWrap">
+    <canvas id="stage" aria-label="레이스 화면"></canvas>
+    <div class="hud-top">
+      <div class="hud-pill clock"><b id="hudTime">00:00</b><span id="hudTarget">/ 01:00</span></div>
+      <div class="progress" aria-hidden="true"><i id="hudProg"></i></div>
+      <div class="hud-pill section-name" id="hudSection">출발 구간</div>
+    </div>
+    <div id="slowBadge" class="slow-badge" hidden>SLOW <b id="slowFactor">×0.3</b><span id="slowLabel"></span></div>
+    <div id="toast" class="toast" hidden></div>
+    <div id="countdown" class="countdown" hidden></div>
+    <div id="loading" class="loading" hidden>코스를 만드는 중…</div>
+    <div class="controls">
+      <button type="button" id="btnPause" class="btn"><span class="ico">⏸</span><span class="txt">일시정지</span></button>
+      <div class="seg" id="segSpeed" role="group" aria-label="배속">
+        <button type="button" data-v="1" aria-pressed="true">1×</button><button type="button" data-v="2">2×</button><button type="button" data-v="4">4×</button>
+      </div>
+      <select id="selCam" aria-label="카메라">
+        <option value="auto">카메라: 자동</option>
+        <option value="leader">선두 추적</option>
+        <option value="tail">꼴찌 추적</option>
+        <option value="overview">전체 보기</option>
+        <option value="free" hidden>자유 보기</option>
+      </select>
+      <input id="inFind" list="dlNames" placeholder="내 공 찾기" aria-label="내 공 찾기">
+      <datalist id="dlNames"></datalist>
+      <button type="button" id="btnSkipSlow" class="btn" hidden><span class="ico">⏩</span><span class="txt">슬로모션 건너뛰기</span></button>
+      <button type="button" id="btnSound" class="btn" aria-label="효과음">🔊</button>
+      <button type="button" id="btnExit" class="btn"><span class="ico">✕</span><span class="txt">나가기</span></button>
+    </div>
+  </div>
+  <aside class="side">
+    <div class="side-head"><h2>실시간 순위</h2><span id="rankMeta"></span></div>
+    <div id="winRule" class="win-rule"></div>
+    <ol id="rankList" class="rank-list"></ol>
+    <div class="mini-wrap"><h3>미니맵 · 누르면 그 위치로 이동</h3><canvas id="minimap"></canvas></div>
+    <button type="button" id="btnShowResult" class="btn primary" hidden>결과 보기</button>
+  </aside>
+</section>
+
+<!-- 결과 -->
+<div id="result" class="overlay" hidden>
+  <div class="result-card" role="dialog" aria-labelledby="resTitle">
+    <p class="eyebrow" id="resMeta"></p>
+    <h2 id="resTitle">행운의 주인공</h2>
+    <div id="blindRoll" class="blind-roll" hidden></div>
+    <div id="winnerCards" class="winner-cards"></div>
+    <details class="full-rank" id="fullRankBox">
+      <summary>전체 순위</summary>
+      <ol id="resRank"></ol>
+    </details>
+    <div class="res-actions">
+      <button type="button" id="btnAgain" class="btn primary">다시 하기</button>
+      <button type="button" id="btnReplay" class="btn">다시 보기</button>
+      <button type="button" id="btnContinue" class="btn">레이스 계속 보기</button>
+      <button type="button" id="btnSaveImg" class="btn">결과 이미지 저장</button>
+      <button type="button" id="btnToSetup" class="btn">설정 변경</button>
+    </div>
+    <p class="seed-line">시드 <b id="resSeed"></b> · <button type="button" id="btnCopySeed" class="link">복사</button> <span id="copyMsg"></span></p>
+  </div>
+</div>
+<canvas id="confetti" hidden></canvas>
+
+<script>
+/*@@ENGINE@@*/
+</script>
+<script>
+/*@@APP@@*/
+</script>
+</body>
+</html>
