@@ -102,6 +102,7 @@
             <option value="last">꼴찌 당첨</option>
             <option value="full">전체 순위 정하기</option>
             <option value="blind">블라인드 (몇 등이 당첨인지 마지막에 공개)</option>
+            <option value="tiers">단계별 추첨 (5등 → 1등 차례로 뽑기)</option>
           </select>
           <span class="stepper" id="winNWrap">
             <button type="button" id="winMinus" aria-label="줄이기">−</button>
@@ -111,6 +112,14 @@
           <span id="winNUnit" class="hint">명</span>
         </div>
         <p class="win-desc" id="winDesc"></p>
+        <div id="tierEditor" class="tier-editor" hidden>
+          <div id="tierRows" class="tier-rows"></div>
+          <div class="tier-actions">
+            <button type="button" class="btn small" id="tierAdd">등수 추가</button>
+            <button type="button" class="btn small" id="tierRemove">등수 빼기</button>
+            <button type="button" class="btn small" id="tierDefault">기본값 (5·4·3·2·1명)</button>
+          </div>
+        </div>
       </div>
 
       <div class="field">

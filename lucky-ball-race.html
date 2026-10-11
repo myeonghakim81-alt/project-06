@@ -235,6 +235,24 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
+/* 단계별 추첨 설정 */
+.tier-editor { display: flex; flex-direction: column; gap: 8px; border: 1px dashed var(--line); border-radius: 12px; padding: 12px; }
+.tier-rows { display: flex; flex-direction: column; gap: 6px; }
+.tier-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.tier-row b { font-size: 15px; }
+.tier-row .where { font-size: 12.5px; color: var(--muted); }
+.tier-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+/* 순위판의 단계별 당첨 현황 */
+.rank-list li.tier-row-live { display: block; padding: 6px 8px; background: var(--gold-soft); }
+.rank-list li.tier-row-live b { margin-right: 6px; }
+.rank-list li.tier-row-live .tn { font-size: 13px; }
+.rank-list li.tier-row-live .tc { float: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rank-list li.head { display: block; font-size: 12px; color: var(--muted); padding: 6px 4px 2px; }
+/* 결과: 등수별 묶음 */
+.tier-group { display: flex; flex-direction: column; gap: 8px; align-items: center; width: 100%; }
+.tier-group h3 { margin: 4px 0 0; font-size: 16px; }
+.tier-group .winner-cards { width: 100%; }
+
 </style>
 </head>
 <body data-gtheme="pastel">
@@ -329,6 +347,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
             <option value="last">꼴찌 당첨</option>
             <option value="full">전체 순위 정하기</option>
             <option value="blind">블라인드 (몇 등이 당첨인지 마지막에 공개)</option>
+            <option value="tiers">단계별 추첨 (5등 → 1등 차례로 뽑기)</option>
           </select>
           <span class="stepper" id="winNWrap">
             <button type="button" id="winMinus" aria-label="줄이기">−</button>
@@ -338,6 +357,14 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           <span id="winNUnit" class="hint">명</span>
         </div>
         <p class="win-desc" id="winDesc"></p>
+        <div id="tierEditor" class="tier-editor" hidden>
+          <div id="tierRows" class="tier-rows"></div>
+          <div class="tier-actions">
+            <button type="button" class="btn small" id="tierAdd">등수 추가</button>
+            <button type="button" class="btn small" id="tierRemove">등수 빼기</button>
+            <button type="button" class="btn small" id="tierDefault">기본값 (5·4·3·2·1명)</button>
+          </div>
+        </div>
       </div>
 
       <div class="field">
@@ -501,14 +528,19 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     lanes:      { name: '3갈래 레인',      zone: 'narrow' },
     baffles:    { name: '계단 턱',         zone: 'narrow' },
     wave:       { name: '물결 협로',       zone: 'narrow' },
+    braid:      { name: '갈래길 · 합류',   zone: 'narrow' },
+    vortex:     { name: '소용돌이 접시',   zone: 'wide' },
+    shortcut:   { name: '지름길 · 타이밍 문', zone: 'wide' },
+    swamp:      { name: '감속 늪',         zone: 'narrow' },
+    boost:      { name: '가속 패드',       zone: 'narrow' },
     final:      { name: '마지막 깔때기',   zone: 'narrow' },
     runoff:     { name: '결승',            zone: 'wide' },
   };
   const ZONES = ['wide', 'narrow', 'curve'];
 
   const STYLE_WEIGHTS = {
-    exciting: { wide: 1, chute: 1, scurve: 1.2, longcurve: 0.6, switchback: 0.8, island: 1.2, rotor: 2.2, bumper: 2.4, posts: 1.8, lanes: 1.6, baffles: 1.8, wave: 1 },
-    dramatic: { wide: 0.8, chute: 1.6, scurve: 2.4, longcurve: 2.2, switchback: 2.2, island: 1.8, rotor: 0.8, bumper: 1, posts: 0.8, lanes: 1.2, baffles: 1, wave: 1.6 },
+    exciting: { wide: 0.8, chute: 0.8, scurve: 1.1, longcurve: 0.6, switchback: 0.8, island: 0.8, rotor: 2.2, bumper: 2.2, posts: 1.4, lanes: 0.8, baffles: 1.4, wave: 0.9, braid: 2.4, vortex: 1.5, shortcut: 1.5, swamp: 1.1, boost: 2.0 },
+    dramatic: { wide: 0.7, chute: 1.2, scurve: 2.0, longcurve: 1.8, switchback: 1.8, island: 1.0, rotor: 1.0, bumper: 0.9, posts: 0.6, lanes: 0.6, baffles: 0.8, wave: 1.3, braid: 2.6, vortex: 2.0, shortcut: 2.2, swamp: 1.5, boost: 1.4 },
   };
   const DIFF = {
     easy:   { obs: 0.6, spin: 0.7, narrow: 1.15, speed: 1.04 },
@@ -573,6 +605,12 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       return [this.x + c * along - s * lat, this.y + s * along + c * lat];
     }
     frame() { return { x: this.x, y: this.y, th: this.th }; }
+    // 이미 만든 중심선에서 거리 s 지점의 옆으로 lat 떨어진 점
+    pointAt(s, lat) {
+      let i = this.S.length - 1;
+      while (i > 0 && this.S[i] > s) i--;
+      return [this.X[i] - this.TY[i] * lat, this.Y[i] + this.TX[i] * lat];
+    }
   }
   function atFrame(f, along, lat) {
     const c = Math.cos(f.th * DEG), s = Math.sin(f.th * DEG);
@@ -591,6 +629,8 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     const sk = Math.sqrt(k);
     const obs = b.obstacles;
     const toCenter = () => (b.x > 0 ? 1 : -1); // +1 = 왼쪽 아래(θ>90)
+    // 풍차: 날개 4개(막대 2개가 십자로 겹침)
+    const mill = (p, len) => obs.push({ type: 'rotor', blades: 2, x: p[0], y: p[1], len, thick: 6 * sk, omega: (0.9 + rng() * 1.1) * d.spin * (rng() < 0.5 ? -1 : 1), phase: rng() * Math.PI });
 
     // 출발 구간: 공이 들어갈 상자 + 게이트 + 짧은 직선
     b.begin('start');
@@ -611,7 +651,9 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       wide() {
         b.steer(90 + (rng() - 0.5) * 30, 320 * k);
         b.taper(WIDE * (0.88 + rng() * 0.14), 150);
-        b.straight(300 + rng() * 220);
+        const L = 320 + rng() * 220, W = b.w, f = b.frame();
+        b.straight(L);
+        mill(atFrame(f, L * 0.55, (rng() - 0.5) * 0.2 * W), 0.28 * W);
       },
       chute() {
         b.steer(90 + toCenter() * rng() * 18, 300 * k);
@@ -640,7 +682,9 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
         const dir = toCenter();
         const R = (520 + rng() * 220) * k;
         b.arc(R, (90 + dir * (30 + rng() * 15)) - b.th);
-        b.straight(80 + rng() * 120);
+        const s0 = b.s, Ls = 120 + rng() * 120;
+        b.straight(Ls);
+        mill(b.pointAt(s0 + Ls * 0.5, 0), 0.3 * b.w);
         b.arc(R, (90 - dir * (8 + rng() * 10)) - b.th);
         b.straight(60);
       },
@@ -650,7 +694,9 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
         let dir = toCenter();
         for (let i = 0; i < legs; i++) {
           b.arc(CURVE / 2 + (60 + rng() * 40) * k, (90 + dir * (46 + rng() * 6)) - b.th);
-          b.straight((150 + rng() * 140) * sk);
+          const s0 = b.s, Ls = (170 + rng() * 140) * sk;
+          b.straight(Ls);
+          mill(b.pointAt(s0 + Ls * 0.5, 0), 0.27 * CURVE);
           dir = -dir;
         }
         b.steer(90, CURVE / 2 + 80 * k);
@@ -678,13 +724,11 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
         const L = 400 + rng() * 140;
         const f = b.frame();
         b.straight(L);
-        const cnt = clamp(Math.round((1 + rng() * 1.5) * d.obs), 1, 3);
+        const cnt = clamp(Math.round((2 + rng() * 1.5) * d.obs), 2, 4);
         for (let i = 0; i < cnt; i++) {
-          const along = L * (cnt === 1 ? 0.5 : 0.22 + 0.56 * i / (cnt - 1));
-          const lat = cnt === 1 ? 0 : (i % 2 ? 1 : -1) * 0.2 * WIDE;
-          const [x, y] = atFrame(f, along, lat);
-          const len = (cnt === 1 ? 0.34 : 0.26) * WIDE;
-          obs.push({ type: 'rotor', x, y, len, thick: 7 * sk, omega: (1.0 + rng() * 1.2) * d.spin * (rng() < 0.5 ? -1 : 1), phase: rng() * Math.PI });
+          const along = L * (0.16 + 0.68 * i / (cnt - 1));
+          const lat = (i % 2 ? 1 : -1) * 0.21 * WIDE;
+          mill(atFrame(f, along, lat), 0.22 * WIDE);
         }
       },
       bumper() {
@@ -695,12 +739,14 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
         const f = b.frame();
         b.straight(L);
         const cnt = Math.round((4 + rng() * 3) * d.obs);
-        const pts = [];
+        const millAt = [L * 0.5, (rng() < 0.5 ? -1 : 1) * 0.22 * W];
+        mill(atFrame(f, millAt[0], millAt[1]), 0.2 * W);
+        const pts = [millAt];
         for (let tries = 0; pts.length < cnt && tries < 200; tries++) {
           const along = L * (0.15 + rng() * 0.7), lat = (rng() - 0.5) * 0.72 * W;
           if (pts.every(p => Math.hypot(p[0] - along, p[1] - lat) > 85 * k)) pts.push([along, lat]);
         }
-        for (const [along, lat] of pts) {
+        for (const [along, lat] of pts.slice(1)) {
           const [x, y] = atFrame(f, along, lat);
           obs.push({ type: 'bumper', x, y, r: 16 * sk });
         }
@@ -753,8 +799,88 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           const along = L * (0.1 + 0.72 * i / Math.max(1, m - 1));
           const side = (i % 2 ? -1 : 1) * first;
           const [ax, ay] = atFrame(f, along, side * W / 2);
-          const [bx, by] = atFrame(f, along + 0.2 * W, side * (W / 2 - 0.52 * W));
+          const [bx, by] = atFrame(f, along + 0.2 * W, side * (W / 2 - 0.46 * W));
           obs.push({ type: 'ledge', ax, ay, bx, by, r: 6 * sk });
+        }
+      },
+      // 여러 갈래로 나뉘었다가 다시 모이는 길
+      braid() {
+        b.steer(90, 320 * k);
+        b.taper(WIDE * 1.05, 160);
+        const L = 540 + rng() * 180, W = b.w, f = b.frame();
+        b.straight(L);
+        b.straight(120);
+        // 레인 하나에 공이 넉넉히 지나가도록(벽 흔들림·장애물 포함) 레인 수를 정함
+        const lanes = (rng() < 0.5 && W / 4 >= r * 2 * 6.5) ? 4 : 3, laneW = W / lanes;
+        for (let j = 1; j < lanes; j++) {
+          const base = -W / 2 + j * laneW, amp = laneW * 0.12, ph = rng() * Math.PI * 2, cyc = 0.8 + rng() * 1.2;
+          let prev = null;
+          for (let q = 0; q <= 12; q++) {
+            const t = 0.1 + 0.76 * q / 12;
+            const p = atFrame(f, L * t, base + amp * Math.sin(ph + cyc * 2 * Math.PI * q / 12));
+            if (prev) obs.push({ type: 'divider', ax: prev[0], ay: prev[1], bx: p[0], by: p[1], r: 5 * sk });
+            prev = p;
+          }
+        }
+        const kinds = ['mill', 'posts', 'bumper', 'clear'];
+        for (let i = kinds.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [kinds[i], kinds[j]] = [kinds[j], kinds[i]]; }
+        for (let j = 0; j < lanes; j++) {
+          const c = -W / 2 + (j + 0.5) * laneW, kind = kinds[j % kinds.length];
+          if (kind === 'mill') mill(atFrame(f, L * 0.5, c), laneW * 0.3);
+          else if (kind === 'posts') [0.3, 0.48, 0.66].forEach(t => { const p = atFrame(f, L * t, c); obs.push({ type: 'post', x: p[0], y: p[1], r: Math.min(6 * sk, laneW * 0.06) }); });
+          else if (kind === 'bumper') [0.36, 0.62].forEach(t => { const p = atFrame(f, L * t, c); obs.push({ type: 'bumper', x: p[0], y: p[1], r: Math.min(12 * sk, laneW * 0.1) }); });
+        }
+      },
+      // 둥근 접시 안에서 빙글빙글 돌다가 빠져나감
+      vortex() {
+        b.steer(90, 320 * k);
+        b.taper(CURVE * 1.1, 110);
+        const w0 = b.w, D = WIDE * 1.1, L = D * 1.05, f = b.frame();
+        b.straight(L, w0, t => w0 + (D - w0) * Math.pow(Math.sin(Math.PI * t), 0.6));
+        const [x, y] = atFrame(f, L * 0.5, 0);
+        obs.push({ type: 'vortex', field: true, x, y, R: D * 0.47, power: 1900, dir: rng() < 0.5 ? 1 : -1 });
+        obs.push({ type: 'post', x, y, r: 16 * sk });
+      },
+      // 짧은 길(타이밍 문) / 긴 길(턱이 있는 길)
+      shortcut() {
+        b.steer(90, 320 * k);
+        b.taper(WIDE, 160);
+        const L = 460 + rng() * 120, W = b.w, f = b.frame();
+        b.straight(L);
+        const side = rng() < 0.5 ? -1 : 1, fastW = W * 0.36, slowW = W - fastW;
+        const dl = side * (W / 2 - fastW);
+        let p = atFrame(f, L * 0.08, dl), q = atFrame(f, L * 0.9, dl);
+        obs.push({ type: 'divider', ax: p[0], ay: p[1], bx: q[0], by: q[1], r: 7 * sk });
+        p = atFrame(f, L * 0.42, side * W / 2); q = atFrame(f, L * 0.42, dl);
+        obs.push({ type: 'gate', ax: p[0], ay: p[1], bx: q[0], by: q[1], r: 6 * sk, period: 2.6, open: 1.0, phase: rng() * 2.6 });
+        // 긴 길: 엇갈린 기둥이 있어 조금 느림
+        const slowC = (dl - side * W / 2) / 2;
+        for (let i = 0; i < 5; i++) {
+          p = atFrame(f, L * (0.18 + 0.15 * i), slowC + (i % 2 ? 1 : -1) * slowW * 0.2);
+          obs.push({ type: 'post', x: p[0], y: p[1], r: 7 * sk });
+        }
+      },
+      // 지나가면 느려지는 늪
+      swamp() {
+        b.steer(90, 320 * k);
+        b.taper(MID * 1.05, 130);
+        const L = 400 + rng() * 140, W = b.w, f = b.frame();
+        b.straight(L);
+        const side = rng() < 0.5 ? -1 : 1;
+        const [x, y] = atFrame(f, L * 0.5, side * W * 0.17);
+        obs.push({ type: 'swamp', field: true, x, y, rx: W * 0.36, ry: L * 0.36, th: f.th, drag: 4.5 });
+        [0.25, 0.75].forEach(t => { const p = atFrame(f, L * t, -side * W * 0.3); obs.push({ type: 'post', x: p[0], y: p[1], r: 7 * sk }); });
+      },
+      // 밟으면 빨라지는 패드
+      boost() {
+        b.steer(90, 320 * k);
+        b.taper(MID * 0.9, 130);
+        const L = 400 + rng() * 140, W = b.w, f = b.frame();
+        b.straight(L);
+        const m = 2 + Math.floor(rng() * 2), first = rng() < 0.5 ? 1 : -1;
+        for (let i = 0; i < m; i++) {
+          const [x, y] = atFrame(f, L * (0.2 + 0.6 * i / (m - 1)), (i % 2 ? -1 : 1) * first * W * 0.22);
+          obs.push({ type: 'boost', field: true, x, y, hl: 42 * sk, hw: W * 0.24, th: f.th, power: 2600 });
         }
       },
       wave() {
@@ -798,7 +924,9 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     b.taper(MID * 0.9, 120);
     b.straight(160);
     b.taper(Math.max(NARROW * 1.5, 140 * k), 200);
-    b.straight(220);
+    const fm = b.frame(), fw = b.w;
+    b.straight(260);
+    mill(atFrame(fm, 110, 0), 0.3 * fw);
     const finishS = b.s, finishIdx = b.X.length - 1;
     b.end();
     b.begin('runoff');
@@ -874,6 +1002,13 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     return lo;
   }
 
+  // 타이밍 문: 열림(open초) → 닫힘 반복. 출발 전에는 닫혀 있음
+  function gateClosed(o, t) {
+    if (t < 0) return true;
+    const m = ((t + o.phase) % o.period + o.period) % o.period;
+    return m >= o.open;
+  }
+
   /* ---------------- 공간 격자 ---------------- */
   class StaticGrid {
     constructor(cell) { this.cell = cell; this.map = new Map(); }
@@ -904,10 +1039,17 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       this.ang = new Float64Array(n);
       this.prog = new Float64Array(n);
       this.idx = new Int32Array(n);
-      this.state = new Uint8Array(n);       // 0 달리는 중, 1 결승 통과, 2 코스에서 빠짐
+      this.state = new Uint8Array(n);       // 0 달리는 중, 1 결승 통과, 2 코스에서 빠짐, 3 당첨 지점에서 뽑힘, 4 같은 사람의 다른 공(제외)
+      this.capT = new Float64Array(n).fill(Infinity);
+      this.capX = new Float64Array(n); this.capY = new Float64Array(n);
+      this.capStation = new Int16Array(n).fill(-1);
+      this.vtime = new Float64Array(n); this.vlimit = new Float64Array(n);
+      this.stations = [];
       this.finT = new Float64Array(n).fill(Infinity);
       this.lastProg = new Float64Array(n);
       this.stuckT = new Float64Array(n);
+      this.stuckN = new Uint8Array(n);
+      this.ghostT = new Float64Array(n);     // 오래 끼었을 때 잠깐 다른 공·장애물을 통과
       this.wander = new Float64Array(n);
       this.order = [];                       // 결승 통과 순서(공 번호)
       this.time = -SETTLE;
@@ -945,6 +1087,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       c.obstacles.forEach((o, id) => {
         let x0, y0, x1, y1;
         if (o.type === 'rotor') { x0 = o.x - o.len; x1 = o.x + o.len; y0 = o.y - o.len; y1 = o.y + o.len; }
+        else if (o.field) { const e = o.R || Math.max(o.rx || 0, o.ry || 0) || Math.hypot(o.hl, o.hw); x0 = o.x - e; x1 = o.x + e; y0 = o.y - e; y1 = o.y + e; }
         else if (o.ax !== undefined) { x0 = Math.min(o.ax, o.bx); x1 = Math.max(o.ax, o.bx); y0 = Math.min(o.ay, o.by); y1 = Math.max(o.ay, o.by); }
         else { x0 = x1 = o.x; y0 = y1 = o.y; }
         const p = (o.r || o.thick || 0) + this.r + 4;
@@ -963,7 +1106,13 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       this.record();
     }
 
-    get done() { return this.order.length >= this.n; }
+    get done() { for (let i = 0; i < this.n; i++) if (this.state[i] === 0) return false; return true; }
+    // 단계별 당첨 지점 설정: [{ s, count, tier }]
+    setStations(stations, personOf) {
+      this.stations = stations.map(st => Object.assign({ balls: [], times: [] }, st));
+      this.personOf = personOf;
+      this.wonPersons = new Set();
+    }
 
     stepFrame() {
       const h = DT / SUBSTEPS;
@@ -983,7 +1132,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       const t = this.time;
       const wf = t > 0 ? WANDER * Math.pow(c.k, 0.3) * h : 0;
       for (let i = 0; i < n; i++) {
-        if (this.state[i] === 2) continue;
+        if (this.state[i] >= 2) continue;
         const q = this.idx[i], wv = this.wander[i] * wf;
         let vx = (this.vx[i] - c.ty[q] * wv) * drag, vy = (this.vy[i] + G * h + c.tx[q] * wv) * drag;
         const sp = Math.hypot(vx, vy);
@@ -996,7 +1145,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       const walls = c.walls, obs = c.obstacles;
       const band = r * 2.6;
       for (let i = 0; i < n; i++) {
-        if (this.state[i] === 2) continue;
+        if (this.state[i] >= 2) continue;
         this.stamp++;
         const st = this.stamp;
         let px = this.x[i], py = this.y[i];
@@ -1036,39 +1185,44 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
             }
           }
         }
-        const ol = this.obsGrid.query(px, py);
+        const ol = this.ghostT[i] > 0 ? null : this.obsGrid.query(px, py);
         if (ol) {
           for (let q = 0; q < ol.length; q++) {
             const id = ol[q];
             if (this.obsStamp[id] === st) continue;
             this.obsStamp[id] = st;
             const o = obs[id];
-            let qx, qy, rad, bvx = 0, bvy = 0;
-            if (o.type === 'rotor') {
-              const a = o.phase + o.omega * t;
-              const cx = Math.cos(a) * o.len, cy = Math.sin(a) * o.len;
-              const ax = o.x - cx, ay = o.y - cy, ex = 2 * cx, ey = 2 * cy;
-              const u = clamp(((px - ax) * ex + (py - ay) * ey) / (ex * ex + ey * ey), 0, 1);
-              qx = ax + ex * u; qy = ay + ey * u; rad = o.thick;
-              bvx = -o.omega * (qy - o.y); bvy = o.omega * (qx - o.x);
-            } else if (o.ax !== undefined) {
-              const ex = o.bx - o.ax, ey = o.by - o.ay;
-              const u = clamp(((px - o.ax) * ex + (py - o.ay) * ey) / (ex * ex + ey * ey), 0, 1);
-              qx = o.ax + ex * u; qy = o.ay + ey * u; rad = o.r;
-            } else { qx = o.x; qy = o.y; rad = o.r; }
-            const dx = px - qx, dy = py - qy, d2 = dx * dx + dy * dy, R = rad + r;
-            if (d2 < R * R) {
-              const d = Math.sqrt(d2) || 1e-6, nx = d2 > 1e-12 ? dx / d : 0, ny = d2 > 1e-12 ? dy / d : -1;
-              px = qx + nx * R; py = qy + ny * R;
-              const rvx = this.vx[i] - bvx, rvy = this.vy[i] - bvy;
-              const vn = rvx * nx + rvy * ny;
-              if (vn < 0) {
-                this.vx[i] -= (1 + E_OBS) * vn * nx; this.vy[i] -= (1 + E_OBS) * vn * ny;
-                if (o.type === 'bumper') {
-                  this.vx[i] += nx * BUMPER_KICK; this.vy[i] += ny * BUMPER_KICK;
-                  if (this.bumperHits.length < 4000) this.bumperHits.push(id, t);
-                  this.impacts++;
-                } else if (vn < -260) this.impacts++;
+            if (o.field) { this.applyField(i, o, px, py, h, t); continue; }
+            if (o.type === 'gate' && !gateClosed(o, t)) continue;
+            const blades = o.type === 'rotor' ? (o.blades || 1) : 1;
+            for (let bl = 0; bl < blades; bl++) {
+              let qx, qy, rad, bvx = 0, bvy = 0;
+              if (o.type === 'rotor') {
+                const a = o.phase + o.omega * t + bl * Math.PI / 2;
+                const cx = Math.cos(a) * o.len, cy = Math.sin(a) * o.len;
+                const ax = o.x - cx, ay = o.y - cy, ex = 2 * cx, ey = 2 * cy;
+                const u = clamp(((px - ax) * ex + (py - ay) * ey) / (ex * ex + ey * ey), 0, 1);
+                qx = ax + ex * u; qy = ay + ey * u; rad = o.thick;
+                bvx = -o.omega * (qy - o.y); bvy = o.omega * (qx - o.x);
+              } else if (o.ax !== undefined) {
+                const ex = o.bx - o.ax, ey = o.by - o.ay;
+                const u = clamp(((px - o.ax) * ex + (py - o.ay) * ey) / (ex * ex + ey * ey), 0, 1);
+                qx = o.ax + ex * u; qy = o.ay + ey * u; rad = o.r;
+              } else { qx = o.x; qy = o.y; rad = o.r; }
+              const dx = px - qx, dy = py - qy, d2 = dx * dx + dy * dy, R = rad + r;
+              if (d2 < R * R) {
+                const d = Math.sqrt(d2) || 1e-6, nx = d2 > 1e-12 ? dx / d : 0, ny = d2 > 1e-12 ? dy / d : -1;
+                px = qx + nx * R; py = qy + ny * R;
+                const rvx = this.vx[i] - bvx, rvy = this.vy[i] - bvy;
+                const vn = rvx * nx + rvy * ny;
+                if (vn < 0) {
+                  this.vx[i] -= (1 + E_OBS) * vn * nx; this.vy[i] -= (1 + E_OBS) * vn * ny;
+                  if (o.type === 'bumper') {
+                    this.vx[i] += nx * BUMPER_KICK; this.vy[i] += ny * BUMPER_KICK;
+                    if (this.bumperHits.length < 4000) this.bumperHits.push(id, t);
+                    this.impacts++;
+                  } else if (vn < -260) this.impacts++;
+                }
               }
             }
           }
@@ -1080,18 +1234,18 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       head.fill(-1);
       const hash = (cx, cy) => (((cx * 73856093) ^ (cy * 19349663)) >>> 0) & (HT - 1);
       for (let i = 0; i < n; i++) {
-        if (this.state[i] === 2) continue;
+        if (this.state[i] >= 2) continue;
         const hh = hash(Math.floor(this.x[i] / cell), Math.floor(this.y[i] / cell));
         next[i] = head[hh]; head[hh] = i;
       }
       const D = 2 * r, D2 = D * D;
       for (let i = 0; i < n; i++) {
-        if (this.state[i] === 2) continue;
+        if (this.state[i] >= 2) continue;
         const cx = Math.floor(this.x[i] / cell), cy = Math.floor(this.y[i] / cell);
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
           let j = head[hash(cx + ox, cy + oy)];
           while (j !== -1) {
-            if (j > i) {
+            if (j > i && !(this.ghostT[i] > 0 || this.ghostT[j] > 0)) {
               const dx = this.x[j] - this.x[i], dy = this.y[j] - this.y[i], d2 = dx * dx + dy * dy;
               if (d2 < D2) {
                 const d = Math.sqrt(d2) || 1e-6;
@@ -1114,11 +1268,36 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       }
     }
 
+    // 힘만 주는 장치(가속 패드, 늪, 소용돌이)
+    applyField(i, o, px, py, h, t) {
+      const dx = px - o.x, dy = py - o.y;
+      if (o.type === 'boost' || o.type === 'swamp') {
+        const c = Math.cos(o.th * DEG), s = Math.sin(o.th * DEG);
+        const u = dx * c + dy * s, v = -dx * s + dy * c;
+        if (o.type === 'boost') {
+          if (Math.abs(u) < o.hl && Math.abs(v) < o.hw) { this.vx[i] += c * o.power * h; this.vy[i] += s * o.power * h; }
+        } else if ((u / o.ry) * (u / o.ry) + (v / o.rx) * (v / o.rx) < 1) {
+          const f = 1 - o.drag * h; this.vx[i] *= f; this.vy[i] *= f;
+        }
+        return;
+      }
+      if (o.type === 'vortex') {
+        const d = Math.hypot(dx, dy);
+        if (d > o.R || d < 1) return;
+        if (this.vlimit[i] <= 0 || this.vtime[i] > this.vlimit[i] + 3) { this.vtime[i] = 0; this.vlimit[i] = 0.8 + this.rng() * 2.6; }
+        this.vtime[i] += h;
+        if (this.vtime[i] > this.vlimit[i]) return;     // 정해진 시간이 지나면 풀려나서 아래로 빠짐
+        const a = o.power * (0.35 + 0.65 * d / o.R) * h;
+        this.vx[i] += (-dy / d) * o.dir * a - (dx / d) * a * 0.15;
+        this.vy[i] += (dx / d) * o.dir * a - (dy / d) * a * 0.15 - G * h * 0.55;
+      }
+    }
+
     afterFrame() {
       const c = this.c, n = this.n, t = this.time;
       let best = -1, bestS = -1;
       for (let i = 0; i < n; i++) {
-        if (this.state[i] === 2) continue;
+        if (this.state[i] >= 2) continue;
         // 진행도: 가까운 중심선 샘플을 앞뒤로 조금씩만 탐색
         let bi = this.idx[i], bd = Infinity;
         const x = this.x[i], y = this.y[i];
@@ -1128,11 +1307,21 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           if (d2 < bd) { bd = d2; bi = q; }
         }
         this.idx[i] = bi;
+        if (this.ghostT[i] > 0) { this.ghostT[i] -= DT; this.vx[i] += c.tx[bi] * 40; this.vy[i] += c.ty[bi] * 40; }
         if ((this.frame + i) % 24 === 0) this.wander[i] = this.rng() * 2 - 1;
         const sPrev = this.prog[i];
         const s = c.s[bi] + (x - c.x[bi]) * c.tx[bi] + (y - c.y[bi]) * c.ty[bi];
         this.prog[i] = s;
         if (this.state[i] === 0) {
+          if (this.stations.length) {
+            for (let k = 0; k < this.stations.length; k++) {
+              const st = this.stations[k];
+              if (sPrev < st.s && s >= st.s && st.balls.length < st.count) {
+                const f = s > sPrev ? clamp((st.s - sPrev) / (s - sPrev), 0, 1) : 1;
+                (this._cross || (this._cross = [])).push([t - DT + DT * f, i, k]);
+              }
+            }
+          }
           if (s >= c.finishS) {
             const f = s > sPrev ? clamp((c.finishS - sPrev) / (s - sPrev), 0, 1) : 1;
             this.finT[i] = t - DT + DT * f;
@@ -1144,10 +1333,14 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
             this.stuckT[i] += DT;
             if (this.stuckT[i] >= 1.5) {
               if (s - this.lastProg[i] < 8 * c.k) {
+                // 끼었으면 앞으로 밀고, 그래도 안 되면 뒤로 살짝 튕겨서 다시 굴러가게
                 const tx = c.tx[bi], ty = c.ty[bi];
-                const lat = (this.rng() - 0.5) * 260;
-                this.vx[i] += tx * 300 - ty * lat; this.vy[i] += ty * 300 + tx * lat;
-              }
+                const back = this.stuckN[i] % 2 === 1;
+                const fw = back ? -380 : 300, lat = (this.rng() - 0.5) * (back ? 520 : 260);
+                this.vx[i] += tx * fw - ty * lat; this.vy[i] += ty * fw + tx * lat;
+                if (this.stuckN[i] < 250) this.stuckN[i]++;
+                if (this.stuckN[i] >= 3) this.ghostT[i] = 0.6;
+              } else this.stuckN[i] = 0;
               this.stuckT[i] = 0; this.lastProg[i] = s;
             }
           }
@@ -1155,8 +1348,25 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           this.state[i] = 2;
         }
       }
+      if (this._cross && this._cross.length) this.resolveCaptures();
       if (this.order.length) this.leader = this.order[0];
       else this.leader = best;
+    }
+
+    // 당첨 지점을 먼저 통과한 공부터 정해진 인원만큼 옆 칸으로 뺌
+    resolveCaptures() {
+      const list = this._cross.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      this._cross = [];
+      for (const [tc, i, k] of list) {
+        const st = this.stations[k];
+        if (this.state[i] !== 0 || st.balls.length >= st.count) continue;
+        const p = this.personOf[i];
+        if (this.wonPersons.has(p)) continue;
+        this.wonPersons.add(p);
+        this.state[i] = 3; this.capT[i] = tc; this.capX[i] = this.x[i]; this.capY[i] = this.y[i]; this.capStation[i] = k;
+        st.balls.push(i); st.times.push(tc);
+        for (let j = 0; j < this.n; j++) if (j !== i && this.personOf[j] === p && this.state[j] === 0) { this.state[j] = 4; this.capT[j] = tc; this.capX[j] = this.x[j]; this.capY[j] = this.y[j]; }
+      }
     }
 
     // 강제 종료: 아직 도착 못한 공을 진행도 순으로 순위 확정
@@ -1174,7 +1384,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       if (!fr) fr = this.frames[f % RING] = { pos: new Float32Array(n * 3), prog: new Float32Array(n), t: 0, impacts: 0, f: -1 };
       fr.f = f; fr.t = this.time; fr.impacts = this.impacts; fr.leader = this.leader;
       for (let i = 0; i < n; i++) {
-        fr.pos[i * 3] = this.state[i] === 2 ? NaN : this.x[i];
+        fr.pos[i * 3] = this.state[i] >= 2 ? NaN : this.x[i];
         fr.pos[i * 3 + 1] = this.y[i];
         fr.pos[i * 3 + 2] = this.ang[i];
         fr.prog[i] = this.prog[i];
@@ -1207,6 +1417,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       case 'blind': return { dir: 'top', count: win.secret, pick: 'last', blind: true };
       case 'top': return { dir: 'top', count: win.n, pick: 'all' };
       case 'bottom': return { dir: 'bottom', count: win.n, pick: 'all' };
+      case 'tiers': return { dir: 'tiers', count: win.tiers[0], pick: 'all' };
       case 'last': return { dir: 'bottom', count: 1, pick: 'all' };
       default: return { dir: 'full', count: persons, pick: 'none' };
     }
@@ -1214,9 +1425,9 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
   // 현재 결승 통과 순서로 당첨이 확정되었는지
   function checkDetermined(world, personOf, spec) {
     const order = world.order;
-    if (order.length >= world.n) return true;
+    if (world.done) return true;
     if (spec.blind) return false;
-    if (spec.dir === 'top') {
+    if (spec.dir === 'top' || spec.dir === 'tiers') {
       const seen = new Set();
       for (const b of order) { seen.add(personOf[b]); if (seen.size >= spec.count) return true; }
       return false;
@@ -1238,7 +1449,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
   // 당첨 공 목록(사람 기준으로 중복 제거)
   function computeWinners(order, personOf, spec) {
     if (spec.dir === 'full') return [];
-    const list = spec.dir === 'top' ? order : order.slice().reverse();
+    const list = spec.dir === 'bottom' ? order.slice().reverse() : order;
     const u = scanUnique(list, personOf, spec.count);
     return spec.pick === 'last' ? u.slice(-1) : u;
   }
@@ -1283,6 +1494,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
             const close = gap < 0.3;
             let label;
             if (this.spec.dir === 'bottom') label = close ? '아슬아슬한 탈출!' : '당첨 확정!';
+            else if (this.spec.dir === 'tiers') label = close ? '1등 접전!' : '1등 확정!';
             else label = close ? '결승 접전!' : '당첨 확정!';
             let focus = [this.detBall];
             if (nextBall >= 0) focus.push(nextBall);
@@ -1297,9 +1509,24 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           }
         }
       }
+      // 단계별 당첨 지점이 다 찼을 때
+      const sts = w.stations;
+      if (sts.length) {
+        if (!this.stSeen) this.stSeen = sts.map(() => 0);
+        sts.forEach((st, k) => {
+          if (st.balls.length <= this.stSeen[k]) return;
+          this.stSeen[k] = st.balls.length;
+          if (st.balls.length < st.count) return;
+          const tc = st.times[st.times.length - 1], last = st.balls[st.balls.length - 1];
+          let bb = -1, bs = -1;
+          for (let i = 0; i < w.n; i++) if (w.state[i] === 0 && w.prog[i] > bs) { bs = w.prog[i]; bb = i; }
+          this.addWindow({ t0: tc - 1.0, t1: tc + 0.4, factor: 0.4, focus: bb >= 0 ? [last, bb] : [last], label: `${st.tier}등 마감!`, kind: 'decision' });
+          this.toasts.push({ t: tc, text: `${st.tier}등 ${st.count}명 확정!` });
+        });
+      }
       // 선두 역전
       if (!w.order.length && t > 0 && w.leader >= 0) {
-        if (this.curLeader < 0) this.curLeader = w.leader;
+        if (this.curLeader < 0 || w.state[this.curLeader] !== 0) { this.curLeader = w.leader; this.leadCand = -1; }
         if (w.leader !== this.curLeader) {
           if (w.leader !== this.leadCand) { this.leadCand = w.leader; this.leadCandT = t; }
           else if (t - this.leadCandT > 0.35) {
@@ -1326,6 +1553,16 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     const win = Object.assign({}, cfg.win);
     if (win.type === 'blind') win.secret = 1 + Math.floor(mulberry32(cfg.seed ^ 0xB11D)() * cfg.persons);
     const spec = winSpecOf(win, cfg.persons);
+    if (win.type === 'tiers') {
+      // tiers[0] = 1등 인원 … tiers[T-1] = T등 인원. T등은 1/T 지점, … 2등은 (T-1)/T 지점, 1등은 결승선
+      const T = win.tiers.length, span = course.finishS - course.startLen;
+      const stations = [];
+      for (let q = 1; q < T; q++) {
+        const tier = T - q + 1;
+        stations.push({ tier, count: win.tiers[tier - 1], s: course.startLen + span * q / T });
+      }
+      world.setStations(stations, personOf);
+    }
     const director = new Director(world, personOf, spec, cfg.slow);
     return { course, world, director, personOf, spec, win };
   }
@@ -1393,7 +1630,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
   /* ================= 설정 상태 ================= */
   const S = {
     count: 8, namesText: '', duration: 60, style: 'exciting', difficulty: 'normal', theme: 'pastel',
-    winType: 'first', winN: 3, slow: 1, slowTouched: false, seed: '', sound: true, labels: 'auto', shuffle: 0,
+    winType: 'first', winN: 3, tiers: [1, 2, 3, 4, 5], slow: 1, slowTouched: false, seed: '', sound: true, labels: 'auto', shuffle: 0,
   };
   const colorOverride = new Map();   // 이름 → 색
   const imageMap = new Map();        // 이름 → { canvas, url }
@@ -1547,6 +1784,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       case 'last': return '꼴찌 당첨';
       case 'full': return '전체 순위';
       case 'blind': return '블라인드';
+      case 'tiers': return `단계별 추첨 ${S.tiers.length}단계 (${S.tiers.reduce((a, b) => a + b, 0)}명)`;
     }
     return '';
   }
@@ -1563,16 +1801,51 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       last: '가장 마지막에 도착한 1명이 당첨됩니다.',
       full: '모든 공의 도착 순서를 정합니다. 발표 순서나 자리 정하기에 쓰세요.',
       blind: '몇 등이 당첨인지는 비밀입니다. 레이스가 끝나면 룰렛으로 당첨 등수를 공개합니다.',
+      tiers: `코스를 ${S.tiers.length}등분해서 낮은 등수부터 차례로 뽑습니다. 각 당첨 지점에 먼저 도착한 공이 정해진 인원만큼 옆 칸으로 빠지고, 나머지는 계속 달립니다. 1등은 결승선에서 뽑습니다.`,
     }[t];
+    $('tierEditor').hidden = t !== 'tiers';
+    if (t === 'tiers') renderTierRows();
     const weighted = participants.some(p => p.weight > 1);
     $('winDesc').textContent = desc + (weighted ? ' 공이 여러 개인 사람도 한 번만 당첨됩니다.' : '');
   }
+  function renderTierRows() {
+    const T = S.tiers.length, persons = participants.length, sum = S.tiers.reduce((a, b) => a + b, 0);
+    const rows = [];
+    for (let tier = T; tier >= 1; tier--) {
+      const where = tier === 1 ? '결승선에서 뽑기' : `코스 ${T - tier + 1}/${T} 지점에서 뽑기`;
+      rows.push(`<div class="tier-row" data-tier="${tier}"><b>${tier}등</b><span class="where">${where}</span>
+        <span class="stepper"><button type="button" data-d="-1" aria-label="${tier}등 줄이기">−</button><input type="number" min="1" max="50" value="${S.tiers[tier - 1]}" aria-label="${tier}등 인원"><button type="button" data-d="1" aria-label="${tier}등 늘리기">+</button></span><span class="hint">명</span></div>`);
+    }
+    rows.push(`<p class="hint">당첨 합계 ${sum}명 / 참가자 ${persons}명${sum === persons ? ' · 모든 사람이 무언가에 당첨됩니다' : ''}</p>`);
+    $('tierRows').innerHTML = rows.join('');
+    $('tierRemove').disabled = T <= 2; $('tierAdd').disabled = T >= 8;
+  }
+  function bindTiers() {
+    const setTier = (tier, v) => { S.tiers[tier - 1] = clamp(parseInt(v, 10) || 1, 1, 50); renderTierRows(); updateSummary(); };
+    $('tierRows').addEventListener('click', e => {
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      const tier = +b.closest('.tier-row').dataset.tier;
+      setTier(tier, S.tiers[tier - 1] + (+b.dataset.d));
+    });
+    $('tierRows').addEventListener('change', e => {
+      if (e.target.type !== 'number') return;
+      setTier(+e.target.closest('.tier-row').dataset.tier, e.target.value);
+    });
+    $('tierAdd').addEventListener('click', () => { if (S.tiers.length < 8) { S.tiers.push(S.tiers.length + 1); renderTierRows(); updateWinUI(); updateSummary(); } });
+    $('tierRemove').addEventListener('click', () => { if (S.tiers.length > 2) { S.tiers.pop(); renderTierRows(); updateWinUI(); updateSummary(); } });
+    $('tierDefault').addEventListener('click', () => { S.tiers = [1, 2, 3, 4, 5]; renderTierRows(); updateWinUI(); updateSummary(); });
+  }
+
   function validate() {
     const persons = participants.length, balls = totalBalls();
     if (persons < 2) return '참가자가 2명 이상이어야 합니다.';
     if (balls > 500) return `공이 모두 ${balls}개입니다. 가중치(*숫자)를 줄여 500개 이하로 맞춰 주세요.`;
     if (S.winType === 'nth' && (S.winN < 1 || S.winN > persons)) return `N등은 1부터 ${persons}까지 고를 수 있습니다.`;
     if ((S.winType === 'top' || S.winType === 'bottom') && (S.winN < 1 || S.winN >= persons)) return `당첨 인원은 1명부터 ${persons - 1}명까지 고를 수 있습니다.`;
+    if (S.winType === 'tiers') {
+      const sum = S.tiers.reduce((a, b) => a + b, 0);
+      if (sum > persons) return `당첨 인원 합계(${sum}명)가 참가자(${persons}명)보다 많습니다. 참가자를 늘리거나 등수별 인원을 줄여 주세요.`;
+    }
     return '';
   }
   function updateSummary() {
@@ -1842,7 +2115,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       const seed = S.seed ? parseInt(S.seed, 10) : 1 + Math.floor(Math.random() * 999999);
       cfg = {
         balls, people, persons: people.length, duration: S.duration, style: S.style, difficulty: S.difficulty, seed,
-        win: { type: S.winType, n: S.winType === 'first' || S.winType === 'last' ? 1 : S.winN }, slow: S.slow, theme: S.theme, labels: S.labels, sound: S.sound,
+        win: { type: S.winType, n: S.winType === 'first' || S.winType === 'last' ? 1 : S.winN, tiers: S.winType === 'tiers' ? S.tiers.slice() : undefined }, slow: S.slow, theme: S.theme, labels: S.labels, sound: S.sound,
       };
       saveSettings();
     }
@@ -1883,6 +2156,8 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       dpr: 1,
     };
     R.pattern = makeBgPattern(sctx, theme);
+    R.stations = buildStations(eng.course, eng.world);
+
     $('hudTarget').textContent = '/ ' + fmtTime(cfg.duration);
     $('winRule').textContent = ruleText(cfg);
     $('loading').hidden = true;
@@ -1890,6 +2165,36 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     buildMinimap();
     R.lastNow = performance.now();
     R.rafId = requestAnimationFrame(loop);
+  }
+
+  // 당첨 지점: 트랙을 가로지르는 선 + 트랙 옆 당첨 칸(공이 빠져 들어가는 곳)
+  function buildStations(c, w) {
+    return w.stations.map(st => {
+      const i = E.indexAtS(c, st.s);
+      const r = c.r, cols = Math.min(st.count, 5), rows = Math.ceil(st.count / cols), gap = r * 2.7;
+      const bw = cols * gap + r * 2, bh = rows * gap + r * 4.2;
+      const px = -c.ty[i], py = c.tx[i];
+      let best = null;
+      for (const sg of [1, -1]) {
+        const ex = c.x[i] + px * sg * c.w[i] / 2, ey = c.y[i] + py * sg * c.w[i] / 2;
+        const dist = Math.max(bw, bh) / 2 + 26 * Math.sqrt(c.k);
+        const bx = ex + px * sg * dist, by = ey + py * sg * dist;
+        let clear = Infinity;
+        for (let q = 0; q < c.n; q += 3) {
+          if (Math.abs(q - i) < 25) continue;
+          const d = Math.hypot(c.x[q] - bx, c.y[q] - by) - c.w[q] / 2;
+          if (d < clear) clear = d;
+        }
+        if (!best || clear > best.clear) best = { bx, by, ex, ey, sg, clear };
+      }
+      const slots = [];
+      for (let q = 0; q < st.count; q++) {
+        const col = q % cols, row = Math.floor(q / cols);
+        slots.push([best.bx - bw / 2 + r + gap / 2 + col * gap - r * 0.35, best.by - bh / 2 + r * 3.4 + row * gap + gap / 2 - r * 0.6]);
+      }
+      return { st, i, bx: best.bx, by: best.by, bw, bh, ex: best.ex, ey: best.ey, slots,
+        line: { ax: c.lx[i], ay: c.ly[i], bx: c.rx[i], by: c.ry[i] } };
+    });
   }
 
   function stopRace() {
@@ -1907,6 +2212,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       case 'last': return '꼴찌 당첨 · 마지막에 도착하는 공이 당첨';
       case 'full': return '전체 순위 정하기';
       case 'blind': return '블라인드 · 당첨 등수는 레이스가 끝나면 공개';
+      case 'tiers': return `단계별 추첨 · ${w.tiers.map((c, i) => `${i + 1}등 ${c}명`).reverse().join(' → ')}`;
     }
     return '';
   }
@@ -2035,18 +2341,45 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       }
       R.finCount = finCount;
     }
+    // 당첨 지점에서 뽑힌 공
+    if (R.stations.length) {
+      for (const S2 of R.stations) {
+        const st = S2.st;
+        S2.shown = S2.shown || 0;
+        while (S2.shown < st.balls.length && st.times[S2.shown] <= t) {
+          const id = st.balls[S2.shown];
+          S2.shown++;
+          sound.ding();
+          spawnBurst(id, 10);
+          showToast(`${st.tier}등 당첨! ${R.cfg.balls[id].name}`, now, 1200);
+          // 같은 사람의 다른 공은 사라짐
+          for (let j = 0; j < R.n; j++) if (W.state[j] === 4 && W.capT[j] === st.times[S2.shown - 1]) spawnPuff(j);
+        }
+      }
+    }
     // 토스트
     while (R.toastIdx < D.toasts.length && D.toasts[R.toastIdx].t <= t) {
       const ts = D.toasts[R.toastIdx++];
       if (ts.t - R.lastToastT < 2.5 && ts.text === '선두 역전!') continue;
       R.lastToastT = ts.t;
-      const el = $('toast'); el.hidden = false; el.textContent = ts.text;
-      el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
-      R.toastUntil = now + 1500;
+      showToast(ts.text, now, 1500);
     }
     if (R.toastUntil && now > R.toastUntil) { $('toast').hidden = true; R.toastUntil = 0; }
     // 슬로모션 시작음
     if (R.activeWin && R.activeWin !== R.lastWinRef) { R.lastWinRef = R.activeWin; sound.whoosh(); }
+  }
+
+  function showToast(text, now, ms) {
+    const el = $('toast'); el.hidden = false; el.textContent = text;
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    R.toastUntil = now + ms;
+  }
+  function spawnPuff(id) {
+    const W = R.world, x = W.capX[id], y = W.capY[id], r = R.course.r;
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120;
+      R.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: 0.6, age: 0, c: R.cfg.balls[id].color, s: r * 0.3 });
+    }
   }
 
   function isZoneBall(rank) {
@@ -2108,6 +2441,16 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       }
       if (!target) target = [c.x[c.finishIdx], c.y[c.finishIdx]];
       [tx, ty] = target;
+      // 당첨 지점 근처에서는 당첨 칸까지 함께 보이게
+      let stationView = null;
+      if (mode === 'auto' && R.stations.length && running.length && R.findId < 0) {
+        const lp = R.prog[running[0]];
+        for (const S2 of R.stations) {
+          const st = S2.st, got = st.times.filter(x => x <= R.dispT);
+          const recent = got.length && R.dispT - got[got.length - 1] < 1.6;
+          if ((got.length < st.count && st.s - lp < 420 * k && st.s - lp > -250 * k) || recent) { stationView = S2; break; }
+        }
+      }
       if (R.dispT < 0.6 && R.findId < 0) {
         // 출발 직전: 출발 상자 전체가 보이게
         const gi = c.gateIdx, bi = E.indexAtS(c, c.boxH * 0.5);
@@ -2121,6 +2464,12 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       const rMin = R.dispT < 0.8 ? 2.2 : R.vw < 600 ? 4 : 5;
       z = clamp(z, rMin / r, 22 / r);
       z = Math.min(z * zMul, 30 / r);
+      if (stationView) {
+        const sv = stationView, minX = Math.min(tx, sv.bx - sv.bw / 2, sv.line.ax, sv.line.bx), maxX = Math.max(tx, sv.bx + sv.bw / 2, sv.line.ax, sv.line.bx);
+        tx = (minX + maxX) / 2; ty = (ty + sv.by) / 2;
+        z = Math.min(z, R.vw * 0.92 / (maxX - minX + 60 * k), R.vh * 0.7 / (Math.abs(target[1] - sv.by) + sv.bh + 200 * k));
+        z = Math.max(z, 2.4 / r);
+      }
       if (R.dispT < 0.6 && R.findId < 0) z = Math.min(22 / r, R.vw * 0.9 / (c.w[0] + 60 * k));
     }
     if (!cam.init) { cam.x = tx; cam.y = ty; cam.z = z; cam.init = true; }
@@ -2195,8 +2544,12 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       g.beginPath(); g.moveTo(gt.ax, gt.ay); g.lineTo(gt.bx, gt.by); g.stroke(); g.setLineDash([]);
       g.globalAlpha = 1;
     }
+    // 힘 장치(늪 · 가속 패드 · 소용돌이)와 당첨 지점
+    drawFields(g, c, t, y0, y1, lw);
+    if (R.stations.length) drawStations(g, c, t, y0, y1, lw);
     // 장애물
     drawObstacles(g, c, t, y0, y1, lw);
+    if (R.stations.length) drawCaptured(g, c);
     // 공
     drawBalls(g, c, y0, y1, lw);
     // 입자
@@ -2204,6 +2557,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     // 화면 좌표 글자
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawPieceLabels(g, c, t, i0, i1, z, ox, oy);
+    if (R.stations.length) drawStationLabels(g, z, ox, oy);
     drawNameLabels(g, z, ox, oy, y0, y1);
   }
 
@@ -2224,9 +2578,74 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
     if (hi) { g.strokeStyle = hi; g.lineWidth = Math.max(1.5, r * 0.35); g.globalAlpha = 0.7; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.globalAlpha = 1; }
   }
+  function drawFields(g, c, t, y0, y1, lw) {
+    const T = Math.max(0, R.dispT);
+    for (const o of c.obstacles) {
+      if (!o.field) continue;
+      const ext = o.R || Math.max(o.rx || 0, o.ry || 0) || Math.hypot(o.hl, o.hw);
+      if (o.y + ext < y0 || o.y - ext > y1) continue;
+      if (o.type === 'swamp') {
+        g.save(); g.translate(o.x, o.y); g.rotate(o.th * Math.PI / 180);
+        g.fillStyle = 'rgba(124,86,40,.42)'; g.beginPath(); g.ellipse(0, 0, o.ry, o.rx, 0, 0, 7); g.fill();
+        g.fillStyle = 'rgba(80,52,20,.55)';
+        for (let k = 0; k < 28; k++) { const a = k * 2.399, rr = Math.sqrt((k + 0.5) / 28); g.beginPath(); g.arc(Math.cos(a) * o.ry * rr * 0.9, Math.sin(a) * o.rx * rr * 0.9, Math.max(2, 3 * lw), 0, 7); g.fill(); }
+        g.restore();
+      } else if (o.type === 'boost') {
+        g.save(); g.translate(o.x, o.y); g.rotate(o.th * Math.PI / 180);
+        g.fillStyle = 'rgba(33,181,115,.85)'; roundRect(g, -o.hl, -o.hw, o.hl * 2, o.hw * 2, Math.min(o.hl, o.hw) * 0.3); g.fill();
+        g.strokeStyle = '#FFFFFF'; g.lineWidth = Math.max(3, o.hl * 0.12); g.lineCap = 'round'; g.lineJoin = 'round';
+        const off = (T * 2) % 1;
+        for (let k = -1; k <= 1; k++) { const x = (k + off - 0.5) * o.hl * 0.6; g.globalAlpha = 0.5 + 0.5 * Math.sin((k + off) * 2); g.beginPath(); g.moveTo(x - o.hl * 0.18, -o.hw * 0.45); g.lineTo(x + o.hl * 0.18, 0); g.lineTo(x - o.hl * 0.18, o.hw * 0.45); g.stroke(); }
+        g.globalAlpha = 1; g.restore();
+      } else if (o.type === 'vortex') {
+        g.save(); g.translate(o.x, o.y); g.rotate(T * 2.2 * o.dir);
+        g.strokeStyle = t.flow.replace(/[\d.]+\)$/, '0.45)'); g.lineWidth = Math.max(3, 3 * lw);
+        for (let arm = 0; arm < 3; arm++) {
+          g.beginPath();
+          for (let a = 0; a < 5; a += 0.12) { const rr = o.R * 0.12 + a / 5 * o.R * 0.85, ang = a * o.dir + arm * 2.094; g.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr); }
+          g.stroke();
+        }
+        g.restore();
+      }
+    }
+  }
+
+  function drawStations(g, c, t, y0, y1, lw) {
+    const T = R.dispT, W = R.world;
+    for (const S2 of R.stations) {
+      if (S2.by + S2.bh < y0 || S2.by - S2.bh > y1) continue;
+      const st = S2.st, L = S2.line;
+      const full = st.times.length >= st.count && st.times[st.count - 1] <= T;
+      g.strokeStyle = full ? 'rgba(180,140,20,.45)' : '#E9A90F'; g.lineWidth = Math.max(6, 4 * lw); g.setLineDash([16, 10]);
+      g.beginPath(); g.moveTo(L.ax, L.ay); g.lineTo(L.bx, L.by); g.stroke(); g.setLineDash([]);
+      // 당첨 칸
+      g.strokeStyle = '#E9A90F'; g.lineWidth = Math.max(3, 2.5 * lw);
+      g.beginPath(); g.moveTo(S2.ex, S2.ey); g.lineTo(S2.bx, S2.by); g.stroke();
+      g.fillStyle = t.label; roundRect(g, S2.bx - S2.bw / 2, S2.by - S2.bh / 2, S2.bw, S2.bh, c.r * 1.2); g.fill();
+      g.strokeStyle = '#E9A90F'; g.lineWidth = Math.max(3, 2 * lw); g.stroke();
+      g.strokeStyle = t.flow; g.lineWidth = Math.max(1.5, lw);
+      for (const [sx, sy] of S2.slots) { g.beginPath(); g.arc(sx, sy, c.r * 1.05, 0, 7); g.stroke(); }
+    }
+  }
+  // 당첨 칸으로 빠진 공(트랙 밖)
+  function drawCaptured(g, c) {
+    const T = R.dispT, W = R.world, r = c.r, sz = r * 2 * (SPR / 2) / SPR_R;
+    for (const S2 of R.stations) {
+      const st = S2.st;
+      for (let q = 0; q < st.balls.length; q++) {
+        const tc = st.times[q]; if (tc > T) continue;
+        const id = st.balls[q], [sx, sy] = S2.slots[q];
+        let e = clamp((T - tc) / 0.7, 0, 1); e = e * e * (3 - 2 * e);
+        const x = W.capX[id] + (sx - W.capX[id]) * e, y = W.capY[id] + (sy - W.capY[id]) * e - Math.sin(e * Math.PI) * r * 4;
+        g.drawImage(R.sprites[id], x - sz / 2, y - sz / 2, sz, sz);
+      }
+    }
+  }
+
   function drawObstacles(g, c, t, y0, y1, lw) {
     const T = R.dispT;
     c.obstacles.forEach((o, id) => {
+      if (o.field) return;
       const oy = o.y !== undefined ? o.y : (o.ay + o.by) / 2;
       const ext = o.len || (o.ax !== undefined ? Math.hypot(o.bx - o.ax, o.by - o.ay) : 0) + (o.r || 0);
       if (oy + ext < y0 || oy - ext > y1) return;
@@ -2251,10 +2670,23 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
           capsule(g, o.ax, o.ay, o.bx, o.by, o.r, t.obs, t.obsHi);
           break;
         case 'rotor': {
-          const a = o.phase + o.omega * Math.max(0, T);
-          const dx = Math.cos(a) * o.len, dy = Math.sin(a) * o.len;
-          capsule(g, o.x - dx, o.y - dy, o.x + dx, o.y + dy, o.thick, t.rotor, t.obsHi);
-          g.fillStyle = t.obs; g.beginPath(); g.arc(o.x, o.y, o.thick * 1.6, 0, 7); g.fill();
+          for (let bl = 0; bl < (o.blades || 1); bl++) {
+            const a = o.phase + o.omega * Math.max(0, T) + bl * Math.PI / 2;
+            const dx = Math.cos(a) * o.len, dy = Math.sin(a) * o.len;
+            capsule(g, o.x - dx, o.y - dy, o.x + dx, o.y + dy, o.thick, t.rotor, t.obsHi);
+          }
+          g.fillStyle = t.obs; g.beginPath(); g.arc(o.x, o.y, o.thick * 1.8, 0, 7); g.fill();
+          break;
+        }
+        case 'gate': {
+          const tt = Math.max(-1, T), per = o.period, m = (((tt + o.phase) % per) + per) % per;
+          const closed = tt < 0 || m >= o.open;
+          if (closed) capsule(g, o.ax, o.ay, o.bx, o.by, o.r, '#E9A90F', '#FFF1C7');
+          else { g.strokeStyle = 'rgba(233,169,15,.45)'; g.lineWidth = Math.max(2, 2 * lw); g.setLineDash([8, 8]); g.beginPath(); g.moveTo(o.ax, o.ay); g.lineTo(o.bx, o.by); g.stroke(); g.setLineDash([]); }
+          // 남은 시간 표시 점
+          const left = closed ? (per - m) / (per - o.open) : (o.open - m) / o.open;
+          g.fillStyle = closed ? '#E5484D' : '#21B573';
+          g.beginPath(); g.arc(o.ax, o.ay, o.r * (1 + left), 0, 7); g.fill();
           break;
         }
       }
@@ -2287,6 +2719,20 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       g.fillRect(p.x - p.s, p.y - p.s, p.s * 2, p.s * 2);
     }
     g.globalAlpha = 1;
+  }
+
+  function drawStationLabels(g, z, ox, oy) {
+    g.font = '800 14px ' + FONT(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const S2 of R.stations) {
+      const st = S2.st, sx = S2.bx * z + ox, sy = (S2.by - S2.bh / 2) * z + oy - 14;
+      if (sy < -40 || sy > R.vh + 40) continue;
+      const got = st.times.filter(x => x <= R.dispT).length;
+      const text = `${st.tier}등 당첨 칸 ${got}/${st.count}`;
+      const w = g.measureText(text).width + 16;
+      g.fillStyle = '#E9A90F'; roundRect(g, sx - w / 2, sy - 11, w, 22, 11); g.fill();
+      g.fillStyle = '#1F1600'; g.fillText(text, sx, sy + 0.5);
+    }
+    g.textAlign = 'left';
   }
 
   function drawPieceLabels(g, c, t, i0, i1, z, ox, oy) {
@@ -2369,7 +2815,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
   function displayOrder() {
     const n = R.n, W = R.world;
     const fin = [], run = [];
-    for (let i = 0; i < n; i++) (R.fin[i] ? fin : run).push(i);
+    for (let i = 0; i < n; i++) { if (W.capT[i] <= R.dispT) continue; (R.fin[i] ? fin : run).push(i); }
     fin.sort((a, b) => W.finT[a] - W.finT[b]);
     run.sort((a, b) => R.prog[b] - R.prog[a]);
     return fin.concat(run);
@@ -2393,6 +2839,20 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       return `<li class="${zone ? 'zone' : ''}${i === R.findId ? ' me' : ''}"><span class="rk">${rank}</span><span class="dot" style="${dotStyle(i)}"></span><span class="nm">${esc(R.cfg.balls[i].name)}</span><span class="st ${cls}">${st}</span></li>`;
     };
     const shown = new Set();
+    if (w.type === 'tiers') {
+      // 등수별 당첨 현황 + 남은 공
+      const live = R.stations.slice().map(S2 => S2.st);
+      live.forEach(st => {
+        const got = st.balls.filter((b, q) => st.times[q] <= R.dispT);
+        rows.push(`<li class="tier-row-live"><b>${st.tier}등</b><span class="tc">${got.length}/${st.count}</span><div class="tn">${got.map(b => esc(R.cfg.balls[b].name)).join(', ') || '—'}</div></li>`);
+      });
+      rows.push(`<li class="tier-row-live"><b>1등</b><span class="tc">결승선 · ${w.tiers[0]}명</span><div class="tn">${R.resultShown && R.resultData ? R.resultData.winners.map(b => esc(R.cfg.balls[b].name)).join(', ') : '—'}</div></li>`);
+      rows.push('<li class="head">남은 공 순위</li>');
+      order.slice(0, 8).forEach((i, q) => rows.push(row(q + 1, i)));
+      $('rankList').innerHTML = rows.join('');
+      $('rankMeta').textContent = `남은 공 ${order.length}개`;
+      return;
+    }
     if (n <= 16) order.forEach((i, q) => { rows.push(row(q + 1, i)); shown.add(i); });
     else {
       const topK = (w.type === 'top' || w.type === 'nth') ? Math.max(8, Math.min(w.n + 2, 14)) : 8;
@@ -2441,6 +2901,11 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     g.beginPath(); g.moveTo(cx - wmax * half - 6 * dpr, fy); g.lineTo(cx + wmax * half + 6 * dpr, fy); g.stroke();
     g.fillStyle = R.theme.text; g.font = `${11 * dpr}px ${FONT()}`; g.textAlign = 'left';
     g.fillText('출발', 4 * dpr, pad + 8 * dpr); g.fillText('결승', 4 * dpr, fy + 4 * dpr);
+    for (const st of R.world.stations) {
+      const y = pad + st.s * sy;
+      g.strokeStyle = '#E9A90F'; g.lineWidth = 2 * dpr; g.beginPath(); g.moveTo(cx - wmax * half - 4 * dpr, y); g.lineTo(cx + wmax * half + 4 * dpr, y); g.stroke();
+      g.fillStyle = '#B7790A'; g.textAlign = 'right'; g.fillText(`${st.tier}등`, mw - 4 * dpr, y + 4 * dpr); g.textAlign = 'left';
+    }
     R.miniBase = off;
   }
   function drawMinimap() {
@@ -2531,9 +2996,14 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     const order = E.fullOrder(W);
     const winners = E.computeWinners(order, R.eng.personOf, R.eng.spec);
     R.winnerSet = new Set(winners);
-    R.resultData = { order, winners };
+    // 단계별 추첨: 1등(결승선) + 각 당첨 지점
+    let groups = null;
+    if (cfg.win.type === 'tiers') {
+      groups = [{ tier: 1, balls: winners }].concat(W.stations.slice().sort((a, b) => a.tier - b.tier).map(st => ({ tier: st.tier, balls: st.balls.slice() })));
+    }
+    R.resultData = { order, winners, groups };
     $('resMeta').textContent = `${cfg.persons}명 · ${cfg.duration}초 ${STYLE_NAME[cfg.style]} · ${DIFF_NAME[cfg.difficulty]} · ${ruleText(cfg).split(' · ')[0]}`;
-    $('resTitle').textContent = cfg.win.type === 'full' ? '최종 순위' : '행운의 주인공';
+    $('resTitle').textContent = cfg.win.type === 'full' ? '최종 순위' : cfg.win.type === 'tiers' ? '등수별 당첨 결과' : '행운의 주인공';
     $('resSeed').textContent = '#' + cfg.seed; $('copyMsg').textContent = '';
     const moreToWatch = !W.done || R.dispT < W.time - 0.05;
     $('btnContinue').hidden = !moreToWatch;
@@ -2543,6 +3013,31 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     cards.innerHTML = '';
     $('result').hidden = false;
     $('fullRankBox').open = cfg.win.type === 'full' || cfg.persons <= 12;
+    const makeCard = (i, sub, q) => {
+      const el = document.createElement('div');
+      el.className = 'winner-card';
+      el.style.animationDelay = (q * 0.06) + 's';
+      const cv = document.createElement('canvas'); cv.width = cv.height = 168;
+      cv.getContext('2d').drawImage(R.sprites[i], 0, 0, 168, 168);
+      el.append(cv);
+      el.insertAdjacentHTML('beforeend', `<b>${esc(cfg.people[cfg.balls[i].personId].name)}</b><span>${sub}</span>`);
+      return el;
+    };
+    if (groups) {
+      cards.classList.remove('many');
+      let q = 0;
+      groups.forEach(gp => {
+        const box = document.createElement('div'); box.className = 'tier-group';
+        box.innerHTML = `<h3>${gp.tier}등 · ${gp.balls.length}명</h3>`;
+        const row = document.createElement('div'); row.className = 'winner-cards' + (gp.tier > 1 || gp.balls.length > 4 ? ' many' : '');
+        gp.balls.forEach(i => row.append(makeCard(i, gp.tier === 1 ? '결승선 도착' : `${gp.tier}등 당첨 지점`, q++)));
+        box.append(row); cards.append(box);
+      });
+      $('blindRoll').hidden = true;
+      if (!again) { sound.fanfare(); confetti(); }
+      $('fullRankBox').open = false;
+      return;
+    }
     const reveal = () => {
       const show = cfg.win.type === 'full' ? order.slice(0, 3) : winners;
       cards.classList.toggle('many', show.length > 4);
@@ -2629,14 +3124,23 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
     g.fillText($('resMeta').textContent, W / 2, 110);
     g.fillStyle = ink; g.font = `400 72px "Black Han Sans", ${font}`;
     g.fillText($('resTitle').textContent, W / 2, 196);
-    const show = cfg.win.type === 'full' ? order.slice(0, 3) : winners.slice(0, 8);
-    const size = show.length > 4 ? 120 : 170, gap = 30, rowN = Math.min(4, show.length);
+    const groups = R.resultData.groups;
+    const tierOf = new Map();
+    if (groups) groups.forEach(gp => gp.balls.forEach(i => tierOf.set(i, gp.tier)));
+    const show = cfg.win.type === 'full' ? order.slice(0, 3) : groups ? groups.flatMap(gp => gp.balls).slice(0, 24) : winners.slice(0, 8);
+    const size = show.length > 8 ? 90 : show.length > 4 ? 120 : 170, gap = 30;
+    const extra = Math.max(0, Math.ceil(show.length / 4) - 1) * (size + 90);
+    c.height = H + extra; g.fillStyle = t.bg; g.fillRect(0, 0, W, H + extra);
+    g.fillStyle = panel; roundRect(g, 40, 40, W - 80, H + extra - 80, 36); g.fill();
+    g.textAlign = 'center'; g.fillStyle = muted; g.font = `500 26px ${font}`; g.fillText($('resMeta').textContent, W / 2, 110);
+    g.fillStyle = ink; g.font = `400 72px "Black Han Sans", ${font}`; g.fillText($('resTitle').textContent, W / 2, 196);
     show.forEach((i, q) => {
       const row = Math.floor(q / 4), col = q % 4, inRow = Math.min(4, show.length - row * 4);
       const x = W / 2 - (inRow * (size + gap) - gap) / 2 + col * (size + gap), y = 240 + row * (size + 90);
       g.drawImage(R.sprites[i], x, y, size, size);
       g.fillStyle = ink; g.font = `700 ${size > 150 ? 34 : 26}px ${font}`;
-      g.fillText(cfg.people[cfg.balls[i].personId].name, x + size / 2, y + size + 44);
+      const nm = cfg.people[cfg.balls[i].personId].name;
+      g.fillText(tierOf.has(i) ? `${tierOf.get(i)}등 ${nm}` : nm, x + size / 2, y + size + 44);
     });
     const listTop = 240 + Math.ceil(show.length / 4) * (size + 90) + 30;
     g.textAlign = 'left'; g.font = `500 26px ${font}`;
@@ -2649,7 +3153,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
       g.fillStyle = ws.has(i) ? gold : ink; g.fillText(cfg.balls[i].name, x + 80, y);
     });
     g.textAlign = 'center'; g.fillStyle = muted; g.font = `500 22px ${font}`;
-    g.fillText(`행운볼 레이스 · 시드 #${cfg.seed} · ${new Date().toLocaleString('ko-KR')}`, W / 2, H - 70);
+    g.fillText(`행운볼 레이스 · 시드 #${cfg.seed} · ${new Date().toLocaleString('ko-KR')}`, W / 2, H + extra - 70);
     c.toBlob(blob => {
       if (!blob) return;
       const a = document.createElement('a');
@@ -2684,7 +3188,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--muted); }
   if (!S.namesText && !hasSaved) { S.namesText = EXAMPLE_NAMES.slice(0, 8).join(', '); S.count = 8; }
   renderThemeCards();
   syncControls();
-  bindSetup(); bindRace(); bindResult();
+  bindSetup(); bindTiers(); bindRace(); bindResult();
   refresh(true);
   // 디버그/테스트용
   window.__LBR = { get race() { return R; }, S, startRace };

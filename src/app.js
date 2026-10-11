@@ -45,7 +45,7 @@
   /* ================= 설정 상태 ================= */
   const S = {
     count: 8, namesText: '', duration: 60, style: 'exciting', difficulty: 'normal', theme: 'pastel',
-    winType: 'first', winN: 3, slow: 1, slowTouched: false, seed: '', sound: true, labels: 'auto', shuffle: 0,
+    winType: 'first', winN: 3, tiers: [1, 2, 3, 4, 5], slow: 1, slowTouched: false, seed: '', sound: true, labels: 'auto', shuffle: 0,
   };
   const colorOverride = new Map();   // 이름 → 색
   const imageMap = new Map();        // 이름 → { canvas, url }
@@ -199,6 +199,7 @@
       case 'last': return '꼴찌 당첨';
       case 'full': return '전체 순위';
       case 'blind': return '블라인드';
+      case 'tiers': return `단계별 추첨 ${S.tiers.length}단계 (${S.tiers.reduce((a, b) => a + b, 0)}명)`;
     }
     return '';
   }
@@ -215,16 +216,51 @@
       last: '가장 마지막에 도착한 1명이 당첨됩니다.',
       full: '모든 공의 도착 순서를 정합니다. 발표 순서나 자리 정하기에 쓰세요.',
       blind: '몇 등이 당첨인지는 비밀입니다. 레이스가 끝나면 룰렛으로 당첨 등수를 공개합니다.',
+      tiers: `코스를 ${S.tiers.length}등분해서 낮은 등수부터 차례로 뽑습니다. 각 당첨 지점에 먼저 도착한 공이 정해진 인원만큼 옆 칸으로 빠지고, 나머지는 계속 달립니다. 1등은 결승선에서 뽑습니다.`,
     }[t];
+    $('tierEditor').hidden = t !== 'tiers';
+    if (t === 'tiers') renderTierRows();
     const weighted = participants.some(p => p.weight > 1);
     $('winDesc').textContent = desc + (weighted ? ' 공이 여러 개인 사람도 한 번만 당첨됩니다.' : '');
   }
+  function renderTierRows() {
+    const T = S.tiers.length, persons = participants.length, sum = S.tiers.reduce((a, b) => a + b, 0);
+    const rows = [];
+    for (let tier = T; tier >= 1; tier--) {
+      const where = tier === 1 ? '결승선에서 뽑기' : `코스 ${T - tier + 1}/${T} 지점에서 뽑기`;
+      rows.push(`<div class="tier-row" data-tier="${tier}"><b>${tier}등</b><span class="where">${where}</span>
+        <span class="stepper"><button type="button" data-d="-1" aria-label="${tier}등 줄이기">−</button><input type="number" min="1" max="50" value="${S.tiers[tier - 1]}" aria-label="${tier}등 인원"><button type="button" data-d="1" aria-label="${tier}등 늘리기">+</button></span><span class="hint">명</span></div>`);
+    }
+    rows.push(`<p class="hint">당첨 합계 ${sum}명 / 참가자 ${persons}명${sum === persons ? ' · 모든 사람이 무언가에 당첨됩니다' : ''}</p>`);
+    $('tierRows').innerHTML = rows.join('');
+    $('tierRemove').disabled = T <= 2; $('tierAdd').disabled = T >= 8;
+  }
+  function bindTiers() {
+    const setTier = (tier, v) => { S.tiers[tier - 1] = clamp(parseInt(v, 10) || 1, 1, 50); renderTierRows(); updateSummary(); };
+    $('tierRows').addEventListener('click', e => {
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      const tier = +b.closest('.tier-row').dataset.tier;
+      setTier(tier, S.tiers[tier - 1] + (+b.dataset.d));
+    });
+    $('tierRows').addEventListener('change', e => {
+      if (e.target.type !== 'number') return;
+      setTier(+e.target.closest('.tier-row').dataset.tier, e.target.value);
+    });
+    $('tierAdd').addEventListener('click', () => { if (S.tiers.length < 8) { S.tiers.push(S.tiers.length + 1); renderTierRows(); updateWinUI(); updateSummary(); } });
+    $('tierRemove').addEventListener('click', () => { if (S.tiers.length > 2) { S.tiers.pop(); renderTierRows(); updateWinUI(); updateSummary(); } });
+    $('tierDefault').addEventListener('click', () => { S.tiers = [1, 2, 3, 4, 5]; renderTierRows(); updateWinUI(); updateSummary(); });
+  }
+
   function validate() {
     const persons = participants.length, balls = totalBalls();
     if (persons < 2) return '참가자가 2명 이상이어야 합니다.';
     if (balls > 500) return `공이 모두 ${balls}개입니다. 가중치(*숫자)를 줄여 500개 이하로 맞춰 주세요.`;
     if (S.winType === 'nth' && (S.winN < 1 || S.winN > persons)) return `N등은 1부터 ${persons}까지 고를 수 있습니다.`;
     if ((S.winType === 'top' || S.winType === 'bottom') && (S.winN < 1 || S.winN >= persons)) return `당첨 인원은 1명부터 ${persons - 1}명까지 고를 수 있습니다.`;
+    if (S.winType === 'tiers') {
+      const sum = S.tiers.reduce((a, b) => a + b, 0);
+      if (sum > persons) return `당첨 인원 합계(${sum}명)가 참가자(${persons}명)보다 많습니다. 참가자를 늘리거나 등수별 인원을 줄여 주세요.`;
+    }
     return '';
   }
   function updateSummary() {
@@ -494,7 +530,7 @@
       const seed = S.seed ? parseInt(S.seed, 10) : 1 + Math.floor(Math.random() * 999999);
       cfg = {
         balls, people, persons: people.length, duration: S.duration, style: S.style, difficulty: S.difficulty, seed,
-        win: { type: S.winType, n: S.winType === 'first' || S.winType === 'last' ? 1 : S.winN }, slow: S.slow, theme: S.theme, labels: S.labels, sound: S.sound,
+        win: { type: S.winType, n: S.winType === 'first' || S.winType === 'last' ? 1 : S.winN, tiers: S.winType === 'tiers' ? S.tiers.slice() : undefined }, slow: S.slow, theme: S.theme, labels: S.labels, sound: S.sound,
       };
       saveSettings();
     }
@@ -535,6 +571,8 @@
       dpr: 1,
     };
     R.pattern = makeBgPattern(sctx, theme);
+    R.stations = buildStations(eng.course, eng.world);
+
     $('hudTarget').textContent = '/ ' + fmtTime(cfg.duration);
     $('winRule').textContent = ruleText(cfg);
     $('loading').hidden = true;
@@ -542,6 +580,36 @@
     buildMinimap();
     R.lastNow = performance.now();
     R.rafId = requestAnimationFrame(loop);
+  }
+
+  // 당첨 지점: 트랙을 가로지르는 선 + 트랙 옆 당첨 칸(공이 빠져 들어가는 곳)
+  function buildStations(c, w) {
+    return w.stations.map(st => {
+      const i = E.indexAtS(c, st.s);
+      const r = c.r, cols = Math.min(st.count, 5), rows = Math.ceil(st.count / cols), gap = r * 2.7;
+      const bw = cols * gap + r * 2, bh = rows * gap + r * 4.2;
+      const px = -c.ty[i], py = c.tx[i];
+      let best = null;
+      for (const sg of [1, -1]) {
+        const ex = c.x[i] + px * sg * c.w[i] / 2, ey = c.y[i] + py * sg * c.w[i] / 2;
+        const dist = Math.max(bw, bh) / 2 + 26 * Math.sqrt(c.k);
+        const bx = ex + px * sg * dist, by = ey + py * sg * dist;
+        let clear = Infinity;
+        for (let q = 0; q < c.n; q += 3) {
+          if (Math.abs(q - i) < 25) continue;
+          const d = Math.hypot(c.x[q] - bx, c.y[q] - by) - c.w[q] / 2;
+          if (d < clear) clear = d;
+        }
+        if (!best || clear > best.clear) best = { bx, by, ex, ey, sg, clear };
+      }
+      const slots = [];
+      for (let q = 0; q < st.count; q++) {
+        const col = q % cols, row = Math.floor(q / cols);
+        slots.push([best.bx - bw / 2 + r + gap / 2 + col * gap - r * 0.35, best.by - bh / 2 + r * 3.4 + row * gap + gap / 2 - r * 0.6]);
+      }
+      return { st, i, bx: best.bx, by: best.by, bw, bh, ex: best.ex, ey: best.ey, slots,
+        line: { ax: c.lx[i], ay: c.ly[i], bx: c.rx[i], by: c.ry[i] } };
+    });
   }
 
   function stopRace() {
@@ -559,6 +627,7 @@
       case 'last': return '꼴찌 당첨 · 마지막에 도착하는 공이 당첨';
       case 'full': return '전체 순위 정하기';
       case 'blind': return '블라인드 · 당첨 등수는 레이스가 끝나면 공개';
+      case 'tiers': return `단계별 추첨 · ${w.tiers.map((c, i) => `${i + 1}등 ${c}명`).reverse().join(' → ')}`;
     }
     return '';
   }
@@ -687,18 +756,45 @@
       }
       R.finCount = finCount;
     }
+    // 당첨 지점에서 뽑힌 공
+    if (R.stations.length) {
+      for (const S2 of R.stations) {
+        const st = S2.st;
+        S2.shown = S2.shown || 0;
+        while (S2.shown < st.balls.length && st.times[S2.shown] <= t) {
+          const id = st.balls[S2.shown];
+          S2.shown++;
+          sound.ding();
+          spawnBurst(id, 10);
+          showToast(`${st.tier}등 당첨! ${R.cfg.balls[id].name}`, now, 1200);
+          // 같은 사람의 다른 공은 사라짐
+          for (let j = 0; j < R.n; j++) if (W.state[j] === 4 && W.capT[j] === st.times[S2.shown - 1]) spawnPuff(j);
+        }
+      }
+    }
     // 토스트
     while (R.toastIdx < D.toasts.length && D.toasts[R.toastIdx].t <= t) {
       const ts = D.toasts[R.toastIdx++];
       if (ts.t - R.lastToastT < 2.5 && ts.text === '선두 역전!') continue;
       R.lastToastT = ts.t;
-      const el = $('toast'); el.hidden = false; el.textContent = ts.text;
-      el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
-      R.toastUntil = now + 1500;
+      showToast(ts.text, now, 1500);
     }
     if (R.toastUntil && now > R.toastUntil) { $('toast').hidden = true; R.toastUntil = 0; }
     // 슬로모션 시작음
     if (R.activeWin && R.activeWin !== R.lastWinRef) { R.lastWinRef = R.activeWin; sound.whoosh(); }
+  }
+
+  function showToast(text, now, ms) {
+    const el = $('toast'); el.hidden = false; el.textContent = text;
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    R.toastUntil = now + ms;
+  }
+  function spawnPuff(id) {
+    const W = R.world, x = W.capX[id], y = W.capY[id], r = R.course.r;
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120;
+      R.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: 0.6, age: 0, c: R.cfg.balls[id].color, s: r * 0.3 });
+    }
   }
 
   function isZoneBall(rank) {
@@ -760,6 +856,16 @@
       }
       if (!target) target = [c.x[c.finishIdx], c.y[c.finishIdx]];
       [tx, ty] = target;
+      // 당첨 지점 근처에서는 당첨 칸까지 함께 보이게
+      let stationView = null;
+      if (mode === 'auto' && R.stations.length && running.length && R.findId < 0) {
+        const lp = R.prog[running[0]];
+        for (const S2 of R.stations) {
+          const st = S2.st, got = st.times.filter(x => x <= R.dispT);
+          const recent = got.length && R.dispT - got[got.length - 1] < 1.6;
+          if ((got.length < st.count && st.s - lp < 420 * k && st.s - lp > -250 * k) || recent) { stationView = S2; break; }
+        }
+      }
       if (R.dispT < 0.6 && R.findId < 0) {
         // 출발 직전: 출발 상자 전체가 보이게
         const gi = c.gateIdx, bi = E.indexAtS(c, c.boxH * 0.5);
@@ -773,6 +879,12 @@
       const rMin = R.dispT < 0.8 ? 2.2 : R.vw < 600 ? 4 : 5;
       z = clamp(z, rMin / r, 22 / r);
       z = Math.min(z * zMul, 30 / r);
+      if (stationView) {
+        const sv = stationView, minX = Math.min(tx, sv.bx - sv.bw / 2, sv.line.ax, sv.line.bx), maxX = Math.max(tx, sv.bx + sv.bw / 2, sv.line.ax, sv.line.bx);
+        tx = (minX + maxX) / 2; ty = (ty + sv.by) / 2;
+        z = Math.min(z, R.vw * 0.92 / (maxX - minX + 60 * k), R.vh * 0.7 / (Math.abs(target[1] - sv.by) + sv.bh + 200 * k));
+        z = Math.max(z, 2.4 / r);
+      }
       if (R.dispT < 0.6 && R.findId < 0) z = Math.min(22 / r, R.vw * 0.9 / (c.w[0] + 60 * k));
     }
     if (!cam.init) { cam.x = tx; cam.y = ty; cam.z = z; cam.init = true; }
@@ -847,8 +959,12 @@
       g.beginPath(); g.moveTo(gt.ax, gt.ay); g.lineTo(gt.bx, gt.by); g.stroke(); g.setLineDash([]);
       g.globalAlpha = 1;
     }
+    // 힘 장치(늪 · 가속 패드 · 소용돌이)와 당첨 지점
+    drawFields(g, c, t, y0, y1, lw);
+    if (R.stations.length) drawStations(g, c, t, y0, y1, lw);
     // 장애물
     drawObstacles(g, c, t, y0, y1, lw);
+    if (R.stations.length) drawCaptured(g, c);
     // 공
     drawBalls(g, c, y0, y1, lw);
     // 입자
@@ -856,6 +972,7 @@
     // 화면 좌표 글자
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawPieceLabels(g, c, t, i0, i1, z, ox, oy);
+    if (R.stations.length) drawStationLabels(g, z, ox, oy);
     drawNameLabels(g, z, ox, oy, y0, y1);
   }
 
@@ -876,9 +993,74 @@
     g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
     if (hi) { g.strokeStyle = hi; g.lineWidth = Math.max(1.5, r * 0.35); g.globalAlpha = 0.7; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.globalAlpha = 1; }
   }
+  function drawFields(g, c, t, y0, y1, lw) {
+    const T = Math.max(0, R.dispT);
+    for (const o of c.obstacles) {
+      if (!o.field) continue;
+      const ext = o.R || Math.max(o.rx || 0, o.ry || 0) || Math.hypot(o.hl, o.hw);
+      if (o.y + ext < y0 || o.y - ext > y1) continue;
+      if (o.type === 'swamp') {
+        g.save(); g.translate(o.x, o.y); g.rotate(o.th * Math.PI / 180);
+        g.fillStyle = 'rgba(124,86,40,.42)'; g.beginPath(); g.ellipse(0, 0, o.ry, o.rx, 0, 0, 7); g.fill();
+        g.fillStyle = 'rgba(80,52,20,.55)';
+        for (let k = 0; k < 28; k++) { const a = k * 2.399, rr = Math.sqrt((k + 0.5) / 28); g.beginPath(); g.arc(Math.cos(a) * o.ry * rr * 0.9, Math.sin(a) * o.rx * rr * 0.9, Math.max(2, 3 * lw), 0, 7); g.fill(); }
+        g.restore();
+      } else if (o.type === 'boost') {
+        g.save(); g.translate(o.x, o.y); g.rotate(o.th * Math.PI / 180);
+        g.fillStyle = 'rgba(33,181,115,.85)'; roundRect(g, -o.hl, -o.hw, o.hl * 2, o.hw * 2, Math.min(o.hl, o.hw) * 0.3); g.fill();
+        g.strokeStyle = '#FFFFFF'; g.lineWidth = Math.max(3, o.hl * 0.12); g.lineCap = 'round'; g.lineJoin = 'round';
+        const off = (T * 2) % 1;
+        for (let k = -1; k <= 1; k++) { const x = (k + off - 0.5) * o.hl * 0.6; g.globalAlpha = 0.5 + 0.5 * Math.sin((k + off) * 2); g.beginPath(); g.moveTo(x - o.hl * 0.18, -o.hw * 0.45); g.lineTo(x + o.hl * 0.18, 0); g.lineTo(x - o.hl * 0.18, o.hw * 0.45); g.stroke(); }
+        g.globalAlpha = 1; g.restore();
+      } else if (o.type === 'vortex') {
+        g.save(); g.translate(o.x, o.y); g.rotate(T * 2.2 * o.dir);
+        g.strokeStyle = t.flow.replace(/[\d.]+\)$/, '0.45)'); g.lineWidth = Math.max(3, 3 * lw);
+        for (let arm = 0; arm < 3; arm++) {
+          g.beginPath();
+          for (let a = 0; a < 5; a += 0.12) { const rr = o.R * 0.12 + a / 5 * o.R * 0.85, ang = a * o.dir + arm * 2.094; g.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr); }
+          g.stroke();
+        }
+        g.restore();
+      }
+    }
+  }
+
+  function drawStations(g, c, t, y0, y1, lw) {
+    const T = R.dispT, W = R.world;
+    for (const S2 of R.stations) {
+      if (S2.by + S2.bh < y0 || S2.by - S2.bh > y1) continue;
+      const st = S2.st, L = S2.line;
+      const full = st.times.length >= st.count && st.times[st.count - 1] <= T;
+      g.strokeStyle = full ? 'rgba(180,140,20,.45)' : '#E9A90F'; g.lineWidth = Math.max(6, 4 * lw); g.setLineDash([16, 10]);
+      g.beginPath(); g.moveTo(L.ax, L.ay); g.lineTo(L.bx, L.by); g.stroke(); g.setLineDash([]);
+      // 당첨 칸
+      g.strokeStyle = '#E9A90F'; g.lineWidth = Math.max(3, 2.5 * lw);
+      g.beginPath(); g.moveTo(S2.ex, S2.ey); g.lineTo(S2.bx, S2.by); g.stroke();
+      g.fillStyle = t.label; roundRect(g, S2.bx - S2.bw / 2, S2.by - S2.bh / 2, S2.bw, S2.bh, c.r * 1.2); g.fill();
+      g.strokeStyle = '#E9A90F'; g.lineWidth = Math.max(3, 2 * lw); g.stroke();
+      g.strokeStyle = t.flow; g.lineWidth = Math.max(1.5, lw);
+      for (const [sx, sy] of S2.slots) { g.beginPath(); g.arc(sx, sy, c.r * 1.05, 0, 7); g.stroke(); }
+    }
+  }
+  // 당첨 칸으로 빠진 공(트랙 밖)
+  function drawCaptured(g, c) {
+    const T = R.dispT, W = R.world, r = c.r, sz = r * 2 * (SPR / 2) / SPR_R;
+    for (const S2 of R.stations) {
+      const st = S2.st;
+      for (let q = 0; q < st.balls.length; q++) {
+        const tc = st.times[q]; if (tc > T) continue;
+        const id = st.balls[q], [sx, sy] = S2.slots[q];
+        let e = clamp((T - tc) / 0.7, 0, 1); e = e * e * (3 - 2 * e);
+        const x = W.capX[id] + (sx - W.capX[id]) * e, y = W.capY[id] + (sy - W.capY[id]) * e - Math.sin(e * Math.PI) * r * 4;
+        g.drawImage(R.sprites[id], x - sz / 2, y - sz / 2, sz, sz);
+      }
+    }
+  }
+
   function drawObstacles(g, c, t, y0, y1, lw) {
     const T = R.dispT;
     c.obstacles.forEach((o, id) => {
+      if (o.field) return;
       const oy = o.y !== undefined ? o.y : (o.ay + o.by) / 2;
       const ext = o.len || (o.ax !== undefined ? Math.hypot(o.bx - o.ax, o.by - o.ay) : 0) + (o.r || 0);
       if (oy + ext < y0 || oy - ext > y1) return;
@@ -903,10 +1085,23 @@
           capsule(g, o.ax, o.ay, o.bx, o.by, o.r, t.obs, t.obsHi);
           break;
         case 'rotor': {
-          const a = o.phase + o.omega * Math.max(0, T);
-          const dx = Math.cos(a) * o.len, dy = Math.sin(a) * o.len;
-          capsule(g, o.x - dx, o.y - dy, o.x + dx, o.y + dy, o.thick, t.rotor, t.obsHi);
-          g.fillStyle = t.obs; g.beginPath(); g.arc(o.x, o.y, o.thick * 1.6, 0, 7); g.fill();
+          for (let bl = 0; bl < (o.blades || 1); bl++) {
+            const a = o.phase + o.omega * Math.max(0, T) + bl * Math.PI / 2;
+            const dx = Math.cos(a) * o.len, dy = Math.sin(a) * o.len;
+            capsule(g, o.x - dx, o.y - dy, o.x + dx, o.y + dy, o.thick, t.rotor, t.obsHi);
+          }
+          g.fillStyle = t.obs; g.beginPath(); g.arc(o.x, o.y, o.thick * 1.8, 0, 7); g.fill();
+          break;
+        }
+        case 'gate': {
+          const tt = Math.max(-1, T), per = o.period, m = (((tt + o.phase) % per) + per) % per;
+          const closed = tt < 0 || m >= o.open;
+          if (closed) capsule(g, o.ax, o.ay, o.bx, o.by, o.r, '#E9A90F', '#FFF1C7');
+          else { g.strokeStyle = 'rgba(233,169,15,.45)'; g.lineWidth = Math.max(2, 2 * lw); g.setLineDash([8, 8]); g.beginPath(); g.moveTo(o.ax, o.ay); g.lineTo(o.bx, o.by); g.stroke(); g.setLineDash([]); }
+          // 남은 시간 표시 점
+          const left = closed ? (per - m) / (per - o.open) : (o.open - m) / o.open;
+          g.fillStyle = closed ? '#E5484D' : '#21B573';
+          g.beginPath(); g.arc(o.ax, o.ay, o.r * (1 + left), 0, 7); g.fill();
           break;
         }
       }
@@ -939,6 +1134,20 @@
       g.fillRect(p.x - p.s, p.y - p.s, p.s * 2, p.s * 2);
     }
     g.globalAlpha = 1;
+  }
+
+  function drawStationLabels(g, z, ox, oy) {
+    g.font = '800 14px ' + FONT(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const S2 of R.stations) {
+      const st = S2.st, sx = S2.bx * z + ox, sy = (S2.by - S2.bh / 2) * z + oy - 14;
+      if (sy < -40 || sy > R.vh + 40) continue;
+      const got = st.times.filter(x => x <= R.dispT).length;
+      const text = `${st.tier}등 당첨 칸 ${got}/${st.count}`;
+      const w = g.measureText(text).width + 16;
+      g.fillStyle = '#E9A90F'; roundRect(g, sx - w / 2, sy - 11, w, 22, 11); g.fill();
+      g.fillStyle = '#1F1600'; g.fillText(text, sx, sy + 0.5);
+    }
+    g.textAlign = 'left';
   }
 
   function drawPieceLabels(g, c, t, i0, i1, z, ox, oy) {
@@ -1021,7 +1230,7 @@
   function displayOrder() {
     const n = R.n, W = R.world;
     const fin = [], run = [];
-    for (let i = 0; i < n; i++) (R.fin[i] ? fin : run).push(i);
+    for (let i = 0; i < n; i++) { if (W.capT[i] <= R.dispT) continue; (R.fin[i] ? fin : run).push(i); }
     fin.sort((a, b) => W.finT[a] - W.finT[b]);
     run.sort((a, b) => R.prog[b] - R.prog[a]);
     return fin.concat(run);
@@ -1045,6 +1254,20 @@
       return `<li class="${zone ? 'zone' : ''}${i === R.findId ? ' me' : ''}"><span class="rk">${rank}</span><span class="dot" style="${dotStyle(i)}"></span><span class="nm">${esc(R.cfg.balls[i].name)}</span><span class="st ${cls}">${st}</span></li>`;
     };
     const shown = new Set();
+    if (w.type === 'tiers') {
+      // 등수별 당첨 현황 + 남은 공
+      const live = R.stations.slice().map(S2 => S2.st);
+      live.forEach(st => {
+        const got = st.balls.filter((b, q) => st.times[q] <= R.dispT);
+        rows.push(`<li class="tier-row-live"><b>${st.tier}등</b><span class="tc">${got.length}/${st.count}</span><div class="tn">${got.map(b => esc(R.cfg.balls[b].name)).join(', ') || '—'}</div></li>`);
+      });
+      rows.push(`<li class="tier-row-live"><b>1등</b><span class="tc">결승선 · ${w.tiers[0]}명</span><div class="tn">${R.resultShown && R.resultData ? R.resultData.winners.map(b => esc(R.cfg.balls[b].name)).join(', ') : '—'}</div></li>`);
+      rows.push('<li class="head">남은 공 순위</li>');
+      order.slice(0, 8).forEach((i, q) => rows.push(row(q + 1, i)));
+      $('rankList').innerHTML = rows.join('');
+      $('rankMeta').textContent = `남은 공 ${order.length}개`;
+      return;
+    }
     if (n <= 16) order.forEach((i, q) => { rows.push(row(q + 1, i)); shown.add(i); });
     else {
       const topK = (w.type === 'top' || w.type === 'nth') ? Math.max(8, Math.min(w.n + 2, 14)) : 8;
@@ -1093,6 +1316,11 @@
     g.beginPath(); g.moveTo(cx - wmax * half - 6 * dpr, fy); g.lineTo(cx + wmax * half + 6 * dpr, fy); g.stroke();
     g.fillStyle = R.theme.text; g.font = `${11 * dpr}px ${FONT()}`; g.textAlign = 'left';
     g.fillText('출발', 4 * dpr, pad + 8 * dpr); g.fillText('결승', 4 * dpr, fy + 4 * dpr);
+    for (const st of R.world.stations) {
+      const y = pad + st.s * sy;
+      g.strokeStyle = '#E9A90F'; g.lineWidth = 2 * dpr; g.beginPath(); g.moveTo(cx - wmax * half - 4 * dpr, y); g.lineTo(cx + wmax * half + 4 * dpr, y); g.stroke();
+      g.fillStyle = '#B7790A'; g.textAlign = 'right'; g.fillText(`${st.tier}등`, mw - 4 * dpr, y + 4 * dpr); g.textAlign = 'left';
+    }
     R.miniBase = off;
   }
   function drawMinimap() {
@@ -1183,9 +1411,14 @@
     const order = E.fullOrder(W);
     const winners = E.computeWinners(order, R.eng.personOf, R.eng.spec);
     R.winnerSet = new Set(winners);
-    R.resultData = { order, winners };
+    // 단계별 추첨: 1등(결승선) + 각 당첨 지점
+    let groups = null;
+    if (cfg.win.type === 'tiers') {
+      groups = [{ tier: 1, balls: winners }].concat(W.stations.slice().sort((a, b) => a.tier - b.tier).map(st => ({ tier: st.tier, balls: st.balls.slice() })));
+    }
+    R.resultData = { order, winners, groups };
     $('resMeta').textContent = `${cfg.persons}명 · ${cfg.duration}초 ${STYLE_NAME[cfg.style]} · ${DIFF_NAME[cfg.difficulty]} · ${ruleText(cfg).split(' · ')[0]}`;
-    $('resTitle').textContent = cfg.win.type === 'full' ? '최종 순위' : '행운의 주인공';
+    $('resTitle').textContent = cfg.win.type === 'full' ? '최종 순위' : cfg.win.type === 'tiers' ? '등수별 당첨 결과' : '행운의 주인공';
     $('resSeed').textContent = '#' + cfg.seed; $('copyMsg').textContent = '';
     const moreToWatch = !W.done || R.dispT < W.time - 0.05;
     $('btnContinue').hidden = !moreToWatch;
@@ -1195,6 +1428,31 @@
     cards.innerHTML = '';
     $('result').hidden = false;
     $('fullRankBox').open = cfg.win.type === 'full' || cfg.persons <= 12;
+    const makeCard = (i, sub, q) => {
+      const el = document.createElement('div');
+      el.className = 'winner-card';
+      el.style.animationDelay = (q * 0.06) + 's';
+      const cv = document.createElement('canvas'); cv.width = cv.height = 168;
+      cv.getContext('2d').drawImage(R.sprites[i], 0, 0, 168, 168);
+      el.append(cv);
+      el.insertAdjacentHTML('beforeend', `<b>${esc(cfg.people[cfg.balls[i].personId].name)}</b><span>${sub}</span>`);
+      return el;
+    };
+    if (groups) {
+      cards.classList.remove('many');
+      let q = 0;
+      groups.forEach(gp => {
+        const box = document.createElement('div'); box.className = 'tier-group';
+        box.innerHTML = `<h3>${gp.tier}등 · ${gp.balls.length}명</h3>`;
+        const row = document.createElement('div'); row.className = 'winner-cards' + (gp.tier > 1 || gp.balls.length > 4 ? ' many' : '');
+        gp.balls.forEach(i => row.append(makeCard(i, gp.tier === 1 ? '결승선 도착' : `${gp.tier}등 당첨 지점`, q++)));
+        box.append(row); cards.append(box);
+      });
+      $('blindRoll').hidden = true;
+      if (!again) { sound.fanfare(); confetti(); }
+      $('fullRankBox').open = false;
+      return;
+    }
     const reveal = () => {
       const show = cfg.win.type === 'full' ? order.slice(0, 3) : winners;
       cards.classList.toggle('many', show.length > 4);
@@ -1281,14 +1539,23 @@
     g.fillText($('resMeta').textContent, W / 2, 110);
     g.fillStyle = ink; g.font = `400 72px "Black Han Sans", ${font}`;
     g.fillText($('resTitle').textContent, W / 2, 196);
-    const show = cfg.win.type === 'full' ? order.slice(0, 3) : winners.slice(0, 8);
-    const size = show.length > 4 ? 120 : 170, gap = 30, rowN = Math.min(4, show.length);
+    const groups = R.resultData.groups;
+    const tierOf = new Map();
+    if (groups) groups.forEach(gp => gp.balls.forEach(i => tierOf.set(i, gp.tier)));
+    const show = cfg.win.type === 'full' ? order.slice(0, 3) : groups ? groups.flatMap(gp => gp.balls).slice(0, 24) : winners.slice(0, 8);
+    const size = show.length > 8 ? 90 : show.length > 4 ? 120 : 170, gap = 30;
+    const extra = Math.max(0, Math.ceil(show.length / 4) - 1) * (size + 90);
+    c.height = H + extra; g.fillStyle = t.bg; g.fillRect(0, 0, W, H + extra);
+    g.fillStyle = panel; roundRect(g, 40, 40, W - 80, H + extra - 80, 36); g.fill();
+    g.textAlign = 'center'; g.fillStyle = muted; g.font = `500 26px ${font}`; g.fillText($('resMeta').textContent, W / 2, 110);
+    g.fillStyle = ink; g.font = `400 72px "Black Han Sans", ${font}`; g.fillText($('resTitle').textContent, W / 2, 196);
     show.forEach((i, q) => {
       const row = Math.floor(q / 4), col = q % 4, inRow = Math.min(4, show.length - row * 4);
       const x = W / 2 - (inRow * (size + gap) - gap) / 2 + col * (size + gap), y = 240 + row * (size + 90);
       g.drawImage(R.sprites[i], x, y, size, size);
       g.fillStyle = ink; g.font = `700 ${size > 150 ? 34 : 26}px ${font}`;
-      g.fillText(cfg.people[cfg.balls[i].personId].name, x + size / 2, y + size + 44);
+      const nm = cfg.people[cfg.balls[i].personId].name;
+      g.fillText(tierOf.has(i) ? `${tierOf.get(i)}등 ${nm}` : nm, x + size / 2, y + size + 44);
     });
     const listTop = 240 + Math.ceil(show.length / 4) * (size + 90) + 30;
     g.textAlign = 'left'; g.font = `500 26px ${font}`;
@@ -1301,7 +1568,7 @@
       g.fillStyle = ws.has(i) ? gold : ink; g.fillText(cfg.balls[i].name, x + 80, y);
     });
     g.textAlign = 'center'; g.fillStyle = muted; g.font = `500 22px ${font}`;
-    g.fillText(`행운볼 레이스 · 시드 #${cfg.seed} · ${new Date().toLocaleString('ko-KR')}`, W / 2, H - 70);
+    g.fillText(`행운볼 레이스 · 시드 #${cfg.seed} · ${new Date().toLocaleString('ko-KR')}`, W / 2, H + extra - 70);
     c.toBlob(blob => {
       if (!blob) return;
       const a = document.createElement('a');
@@ -1336,7 +1603,7 @@
   if (!S.namesText && !hasSaved) { S.namesText = EXAMPLE_NAMES.slice(0, 8).join(', '); S.count = 8; }
   renderThemeCards();
   syncControls();
-  bindSetup(); bindRace(); bindResult();
+  bindSetup(); bindTiers(); bindRace(); bindResult();
   refresh(true);
   // 디버그/테스트용
   window.__LBR = { get race() { return R; }, S, startRace };
