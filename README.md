@@ -12,8 +12,9 @@
 
 | 파일 | 크기 | 내용 |
 |---|---|---|
+| `LuckyBallRace-exe.zip` | 약 1.2MB | `LuckyBallRace.exe` 하나(약 3MB). 더블클릭하면 단독 창으로 실행됩니다. Windows 10/11에 들어 있는 WebView2(Edge 엔진)로 그리고, 없으면 기본 브라우저로 엽니다. 만들려면 Go가 필요합니다. |
 | `LuckyBallRace-bat.zip` | 약 80KB | 게임 + `LuckyBallRace.bat`(실행) · `Install.bat`(바탕화면 · 시작 메뉴 바로가기) · `Uninstall.bat`. Windows에 기본으로 있는 Edge를 주소창 없는 앱 창으로 엽니다. |
-| `LuckyBallRace-win64.zip` | 약 95MB | 압축을 풀고 `LuckyBallRace.exe` 를 실행하면 브라우저 없이 단독 창으로 실행됩니다(Electron). F11 전체 화면. |
+| `LuckyBallRace-win64.zip` | 약 95MB | Electron 단독 실행 버전. `ELECTRON=1 bash tools/build-windows.sh` 로 만들 때만 생깁니다. |
 
 둘 다 코드 서명을 하지 않아서 처음 실행할 때 Windows SmartScreen 경고가 나올 수 있습니다. "추가 정보" → "실행"을 누르면 됩니다.
 
@@ -76,7 +77,7 @@ tools/build.cjs  src/ 를 lucky-ball-race.html 하나로 묶기
 tools/sim.cjs    화면 없이 레이스를 돌려 시간 · 끼임 · 성능 확인
 tools/e2e.cjs    Playwright로 설정 → 레이스 → 결과까지 자동 실행
 tools/build-windows.sh  Windows용 bat / exe 배포 파일 만들기
-desktop/         exe(Electron) 창 코드, bat 실행·설치 파일, 아이콘
+desktop/         exe(WebView2 · Electron) 창 코드, bat 실행·설치 파일, 아이콘
 ```
 
 `src/` 를 고친 뒤에는 `node tools/build.cjs` 로 `lucky-ball-race.html` 을 다시 만듭니다.

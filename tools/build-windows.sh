@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Windows용 배포 파일을 만듭니다.
-#   dist/LuckyBallRace-bat.zip   : 게임 HTML + 실행/설치 bat (용량 작음, Edge/크롬 사용)
-#   dist/LuckyBallRace-win64.zip : 단독 실행 LuckyBallRace.exe (Electron, 브라우저 불필요)
-# 사용법: bash tools/build-windows.sh
+#   dist/LuckyBallRace-bat.zip   : 게임 HTML + 실행/설치 bat (Edge/크롬 앱 창으로 실행)
+#   dist/LuckyBallRace-exe.zip   : LuckyBallRace.exe 하나 (약 3MB, Windows 내장 WebView2 사용, Go 필요)
+#   dist/LuckyBallRace-win64.zip : Electron 단독 실행 버전 (약 95MB, ELECTRON=1 일 때만)
+# 사용법: bash tools/build-windows.sh      (Electron 버전까지: ELECTRON=1 bash tools/build-windows.sh)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ELECTRON_VERSION="${ELECTRON_VERSION:-31.7.7}"
@@ -19,7 +20,20 @@ cp "$ROOT/lucky-ball-race.html" "$ROOT/desktop/icon.ico" "$ROOT"/desktop/bat/* "
 rm -f "$DIST/LuckyBallRace-bat.zip"
 (cd "$WORK" && zip -qr "$DIST/LuckyBallRace-bat.zip" LuckyBallRace)
 
-# 2) exe 버전 (Electron 실행 파일에 게임을 넣음)
+# 2) exe 버전 (WebView2, Go로 교차 컴파일)
+WV="$ROOT/desktop/webview2"
+cp "$ROOT/lucky-ball-race.html" "$WV/index.html"
+(cd "$WV" && go run github.com/akavel/rsrc@v0.10.2 -manifest app.manifest -ico ../icon.ico -arch amd64 -o rsrc_windows_amd64.syso \
+  && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui -s -w" -o LuckyBallRace.exe .)
+EXE="$WORK/LuckyBallRace-exe"
+mkdir -p "$EXE"
+cp "$WV/LuckyBallRace.exe" "$EXE/"
+cp "$ROOT/desktop/README-webview2.txt" "$EXE/README.txt"
+rm -f "$DIST/LuckyBallRace-exe.zip"
+(cd "$WORK" && zip -qr -9 "$DIST/LuckyBallRace-exe.zip" LuckyBallRace-exe)
+
+# 3) Electron 버전 (선택)
+if [ "${ELECTRON:-0}" != "1" ]; then ls -lh "$DIST"/LuckyBallRace-*.zip; exit 0; fi
 ZIP="$DIST/electron-v$ELECTRON_VERSION-win32-x64.zip"
 if [ ! -f "$ZIP" ]; then
   curl -fsSL -o "$ZIP" "https://github.com/electron/electron/releases/download/v$ELECTRON_VERSION/electron-v$ELECTRON_VERSION-win32-x64.zip"
