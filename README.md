@@ -6,6 +6,17 @@
 
 `lucky-ball-race.html` 파일 하나만 있으면 됩니다. 파일을 더블클릭하면 브라우저(크롬, 엣지, 사파리, 파이어폭스)에서 바로 실행됩니다. 서버나 설치가 필요 없고, 인터넷이 없어도 동작합니다(인터넷이 연결되어 있으면 제목 글꼴만 추가로 내려받습니다).
 
+### Windows 프로그램으로 쓰기
+
+`bash tools/build-windows.sh` 를 실행하면 `dist/` 에 두 가지 배포 파일이 만들어집니다.
+
+| 파일 | 크기 | 내용 |
+|---|---|---|
+| `LuckyBallRace-bat.zip` | 약 80KB | 게임 + `LuckyBallRace.bat`(실행) · `Install.bat`(바탕화면 · 시작 메뉴 바로가기) · `Uninstall.bat`. Windows에 기본으로 있는 Edge를 주소창 없는 앱 창으로 엽니다. |
+| `LuckyBallRace-win64.zip` | 약 95MB | 압축을 풀고 `LuckyBallRace.exe` 를 실행하면 브라우저 없이 단독 창으로 실행됩니다(Electron). F11 전체 화면. |
+
+둘 다 코드 서명을 하지 않아서 처음 실행할 때 Windows SmartScreen 경고가 나올 수 있습니다. "추가 정보" → "실행"을 누르면 됩니다.
+
 ## 설정 항목
 
 | 번호 | 항목 | 선택지 |
@@ -64,6 +75,8 @@ src/app.js       설정 화면 · 렌더링 · 카메라 · 효과음 · 결과
 tools/build.cjs  src/ 를 lucky-ball-race.html 하나로 묶기
 tools/sim.cjs    화면 없이 레이스를 돌려 시간 · 끼임 · 성능 확인
 tools/e2e.cjs    Playwright로 설정 → 레이스 → 결과까지 자동 실행
+tools/build-windows.sh  Windows용 bat / exe 배포 파일 만들기
+desktop/         exe(Electron) 창 코드, bat 실행·설치 파일, 아이콘
 ```
 
 `src/` 를 고친 뒤에는 `node tools/build.cjs` 로 `lucky-ball-race.html` 을 다시 만듭니다.

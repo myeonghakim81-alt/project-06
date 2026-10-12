@@ -1,0 +1,7 @@
+{
+  "name": "lucky-ball-race",
+  "productName": "행운볼 레이스",
+  "version": "1.1.0",
+  "description": "행운볼 레이스 추첨 게임",
+  "main": "main.js"
+}
